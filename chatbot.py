@@ -18,10 +18,6 @@ st.set_page_config(
 )
 st.title("💬ShinzoGPT")
 
-#Sidebar Configuration
-with st.sidebar:
-    st.header("⚙️ Settings")
-
 col1,col2=st.columns(2)
 
 with col1:
@@ -74,14 +70,12 @@ def get_llm():
     
     elif provider == "Moonshot Kimi":
         if is_nvidia_key:
-            # 🟢 FIX 1: Use NVIDIA's URL if it's an nvapi key
             return ChatOpenAI(
                 model=selected_model, 
                 api_key=api_key, 
                 base_url="https://integrate.api.nvidia.com/v1"
             )
         else:
-            # 🔴 FIX 2: Added the 'else' block back so normal keys work too
             return ChatOpenAI(
                 model=selected_model, 
                 api_key=api_key, 
@@ -129,3 +123,4 @@ if user_prompt:
                     st.session_state.chat_history.append({"role":"assistant","content":assistant_response})
             except Exception as e:
                 st.error(f"Error: {str(e)}")
+
