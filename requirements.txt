@@ -1,8 +1,13 @@
 streamlit
 python-dotenv
+langchain
 langchain-community
+langchain-core
 langchain-groq
 langchain-openai
 langchain-google-genai
-langchain-core
 langchain-huggingface
+langchain-chroma
+chromadb
+pypdf
+sentence-transformers
