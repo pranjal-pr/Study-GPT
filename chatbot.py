@@ -182,8 +182,36 @@ st.markdown(
     }
 
     [data-testid="stMainBlockContainer"] {
-        max-width: 1220px;
-        padding-top: 1.6rem;
+        max-width: 980px;
+        padding-top: 2.3rem;
+    }
+
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, rgba(14, 14, 16, 0.98), rgba(10, 10, 12, 0.98));
+        border-right: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .left-rail {
+        position: fixed;
+        top: 110px;
+        left: 10px;
+        display: flex;
+        flex-direction: column;
+        gap: 11px;
+        z-index: 5;
+    }
+
+    .rail-dot {
+        width: 36px;
+        height: 36px;
+        border-radius: 999px;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background: rgba(16, 16, 19, 0.9);
+        color: #d2d6de;
+        font-size: 0.92rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
     }
 
     .hero {
@@ -200,6 +228,11 @@ st.markdown(
         gap: 0.95rem;
         animation: sg-fade-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
         transition: box-shadow 200ms ease, border-color 200ms ease;
+    }
+
+    .hero-center {
+        max-width: 780px;
+        margin: 0 auto 0.8rem;
     }
 
     .hero:hover {
@@ -269,6 +302,11 @@ st.markdown(
         margin-bottom: 0.68rem;
     }
 
+    .chip-row-center {
+        justify-content: center;
+        margin-bottom: 1rem;
+    }
+
     .chip {
         border: 1px solid var(--line);
         border-radius: 999px;
@@ -303,9 +341,62 @@ st.markdown(
         background: rgba(255, 255, 255, 0.01);
     }
 
+    .quick-pills {
+        display: flex;
+        justify-content: center;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin: 0.8rem 0 1.2rem;
+    }
+
+    .quick-pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(18, 18, 22, 0.85);
+        color: #d7dbe5;
+        font-size: 0.85rem;
+        padding: 0.42rem 0.92rem;
+    }
+
+    .prompt-hint {
+        color: var(--txt-muted);
+        text-align: center;
+        font-size: 0.88rem;
+        margin: 0.2rem 0 0.55rem;
+    }
+
     .small-muted {
         color: var(--txt-muted);
         font-size: 0.84rem;
+    }
+
+    [data-testid="stForm"] {
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        padding: 0.72rem 0.78rem 0.38rem;
+        background: linear-gradient(180deg, rgba(24, 24, 28, 0.94), rgba(15, 15, 18, 0.94));
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.24);
+        margin-bottom: 1.1rem;
+    }
+
+    [data-testid="stTextInput"] > div > div > input {
+        border-radius: 999px !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        background: rgba(23, 24, 29, 0.96) !important;
+        min-height: 46px !important;
+        color: #f0f2f6 !important;
+        font-size: 1rem !important;
+    }
+
+    [data-testid="stTextInput"] > div > div > input:focus {
+        border-color: rgba(255, 255, 255, 0.26) !important;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) !important;
+    }
+
+    .stFormSubmitButton > button {
+        min-height: 46px;
+        border-radius: 999px;
+        font-weight: 600;
     }
 
     .stButton > button {
@@ -384,6 +475,7 @@ st.markdown(
 
     .sg-msg {
         display: block;
+        max-width: 90%;
         border: 1px solid var(--line);
         border-radius: 14px;
         padding: 0.62rem 0.82rem;
@@ -404,11 +496,13 @@ st.markdown(
     .sg-msg.user {
         border-color: rgba(255, 255, 255, 0.2);
         background: #1c1c1c;
+        margin-left: auto;
     }
 
     .sg-msg.assistant {
         border-color: rgba(255, 255, 255, 0.14);
         background: #141414;
+        margin-right: auto;
     }
 
     .sg-body {
@@ -478,6 +572,10 @@ st.markdown(
             padding-top: 1.2rem;
         }
 
+        .left-rail {
+            display: none;
+        }
+
         .hero h1 {
             font-size: 1.7rem;
         }
@@ -485,6 +583,10 @@ st.markdown(
         .hero-logo {
             width: 54px;
             height: 54px;
+        }
+
+        .sg-msg {
+            max-width: 100%;
         }
     }
     </style>
@@ -511,177 +613,196 @@ logo_markup = (
 )
 
 st.markdown(
-    f"""
-    <div class="hero">
-        <div class="hero-logo">{logo_markup}</div>
-        <div>
-            <h1>ShinzoGPT</h1>
-            <p>Document-aware AI chat with fast model switching and source-grounded answers.</p>
-        </div>
+    """
+    <div class="left-rail">
+        <div class="rail-dot">S</div>
+        <div class="rail-dot">C</div>
+        <div class="rail-dot">M</div>
+        <div class="rail-dot">R</div>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-control_col, chat_col = st.columns([1, 2.1], gap="large")
+with st.sidebar:
+    st.markdown("### Session Controls")
+    provider = st.selectbox("Provider", PROVIDER_OPTIONS)
+    api_key, is_nvidia_key, model_label, model_options = resolve_provider_config(provider)
+    selected_model = st.selectbox(model_label, model_options)
+    routing_mode_label = st.selectbox(
+        "Routing",
+        ROUTING_OPTIONS,
+        index=0,
+        help="Auto chooses between chat and RAG. Chat only ignores docs. RAG only forces doc-grounded answers.",
+    )
+    routing_mode = ROUTING_MODE_MAP[routing_mode_label]
 
-with control_col:
-    with st.container(border=True):
-        st.markdown("### Session Controls")
-        provider = st.selectbox("Provider", PROVIDER_OPTIONS)
-        api_key, is_nvidia_key, model_label, model_options = resolve_provider_config(provider)
-        selected_model = st.selectbox(model_label, model_options)
-        routing_mode_label = st.selectbox(
-            "Routing",
-            ROUTING_OPTIONS,
-            index=0,
-            help="Auto chooses between chat and RAG. Chat only ignores docs. RAG only forces doc-grounded answers.",
+    key_chip = "Connected" if api_key else "Missing"
+    key_class = "ok" if api_key else "warn"
+    st.markdown(
+        f'<div class="chip-row"><span class="chip {key_class}">API Key: {key_chip}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    st.markdown("---")
+    st.markdown("### Knowledge")
+    uploaded_files = st.file_uploader(
+        "Upload PDFs",
+        type=["pdf"],
+        accept_multiple_files=True,
+        label_visibility="collapsed",
+    )
+
+    process_col, reset_col = st.columns(2)
+    with process_col:
+        process_docs = st.button(
+            "Process PDFs",
+            type="primary",
+            use_container_width=True,
+            disabled=not uploaded_files,
         )
-        routing_mode = ROUTING_MODE_MAP[routing_mode_label]
+    with reset_col:
+        reset_chat = st.button("Reset Chat", use_container_width=True)
 
-        key_chip = "Connected" if api_key else "Missing"
-        key_class = "ok" if api_key else "warn"
-        st.markdown(
-            f'<div class="chip-row"><span class="chip {key_class}">API Key: {key_chip}</span></div>',
-            unsafe_allow_html=True,
-        )
+    if process_docs and uploaded_files:
+        if len(uploaded_files) > MAX_UPLOAD_FILES:
+            st.error(f"Upload limit exceeded. Max {MAX_UPLOAD_FILES} files.")
+            st.stop()
 
-        summary_refresh = st.button("Refresh Runtime Metrics", use_container_width=True)
-        if summary_refresh or (time.time() - st.session_state.runtime_summary_ts) > 30:
-            st.session_state.runtime_summary = fetch_runtime_summary()
-            st.session_state.runtime_summary_ts = time.time()
-
-        with st.expander("Runtime Metrics", expanded=False):
-            summary = st.session_state.runtime_summary
-            if summary:
-                left_m, right_m = st.columns(2)
-                left_m.metric("Requests", summary.get("requests_total", 0))
-                right_m.metric("Errors", summary.get("errors_total", 0))
-                left_m.metric("Avg Latency (ms)", summary.get("avg_request_latency_ms", 0))
-                right_m.metric("Est. Cost (USD)", summary.get("estimated_cost_usd_total", 0))
-            else:
-                st.caption("Metrics unavailable (backend unreachable or observability endpoint disabled).")
-
-    with st.container(border=True):
-        st.markdown("### Knowledge")
-        uploaded_files = st.file_uploader(
-            "Upload PDFs",
-            type=["pdf"],
-            accept_multiple_files=True,
-            label_visibility="collapsed",
-        )
-
-        process_col, reset_col = st.columns(2)
-        with process_col:
-            process_docs = st.button(
-                "Process PDFs",
-                type="primary",
-                use_container_width=True,
-                disabled=not uploaded_files,
-            )
-        with reset_col:
-            reset_chat = st.button("Reset Chat", use_container_width=True)
-
-        if process_docs and uploaded_files:
-            if len(uploaded_files) > MAX_UPLOAD_FILES:
-                st.error(f"Upload limit exceeded. Max {MAX_UPLOAD_FILES} files.")
+        for file in uploaded_files:
+            size_mb = len(file.getvalue()) / (1024 * 1024)
+            if size_mb > MAX_UPLOAD_FILE_MB:
+                st.error(f"{file.name} exceeds {MAX_UPLOAD_FILE_MB}MB limit.")
                 st.stop()
 
-            for file in uploaded_files:
-                size_mb = len(file.getvalue()) / (1024 * 1024)
-                if size_mb > MAX_UPLOAD_FILE_MB:
-                    st.error(f"{file.name} exceeds {MAX_UPLOAD_FILE_MB}MB limit.")
-                    st.stop()
+        with st.spinner("Indexing documents..."):
+            try:
+                files_data = [("files", (f.name, f.getvalue(), "application/pdf")) for f in uploaded_files]
+                response = HTTP_SESSION.post(
+                    f"{API_URL}/upload",
+                    files=files_data,
+                    timeout=(HTTP_CONNECT_TIMEOUT_SEC, HTTP_READ_TIMEOUT_UPLOAD_SEC),
+                )
 
-            with st.spinner("Indexing documents..."):
-                try:
-                    files_data = [("files", (f.name, f.getvalue(), "application/pdf")) for f in uploaded_files]
-                    response = HTTP_SESSION.post(
-                        f"{API_URL}/upload",
-                        files=files_data,
-                        timeout=(HTTP_CONNECT_TIMEOUT_SEC, HTTP_READ_TIMEOUT_UPLOAD_SEC),
-                    )
+                if response.status_code == 200:
+                    result = response.json()
+                    st.session_state.vector_db_path = result.get("vector_db_path")
+                    st.session_state.uploaded_sources = [f.name for f in uploaded_files]
+                    st.success("Knowledge base updated.")
+                else:
+                    st.error(f"Backend failed: {parse_backend_error(response)}")
+            except Exception as e:
+                st.error(f"Upload failed: {e}")
 
-                    if response.status_code == 200:
-                        result = response.json()
-                        st.session_state.vector_db_path = result.get("vector_db_path")
-                        st.session_state.uploaded_sources = [f.name for f in uploaded_files]
-                        st.success("Knowledge base updated.")
-                    else:
-                        st.error(f"Backend failed: {parse_backend_error(response)}")
-                except Exception as e:
-                    st.error(f"Upload failed: {e}")
+    if reset_chat:
+        st.session_state.chat_history = []
+        st.session_state.vector_db_path = None
+        st.session_state.uploaded_sources = []
+        st.rerun()
 
-        if reset_chat:
-            st.session_state.chat_history = []
-            st.session_state.vector_db_path = None
-            st.session_state.uploaded_sources = []
-            st.rerun()
+    rag_active = bool(st.session_state.vector_db_path)
+    rag_chip = "RAG Active" if rag_active else "RAG Inactive"
+    rag_class = "ok" if rag_active else "warn"
+    doc_count = len(st.session_state.uploaded_sources)
+    st.markdown(
+        f"""
+        <div class="chip-row">
+            <span class="chip {rag_class}">{rag_chip}</span>
+            <span class="chip">Docs: {doc_count}</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-        rag_active = bool(st.session_state.vector_db_path)
-        rag_chip = "RAG Active" if rag_active else "RAG Inactive"
-        rag_class = "ok" if rag_active else "warn"
-        doc_count = len(st.session_state.uploaded_sources)
-        st.markdown(
-            f"""
-            <div class="chip-row">
-                <span class="chip {rag_class}">{rag_chip}</span>
-                <span class="chip">Docs: {doc_count}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+    if st.session_state.uploaded_sources:
+        st.markdown("<div class='small-muted'>Indexed files:</div>", unsafe_allow_html=True)
+        for doc_name in st.session_state.uploaded_sources[:5]:
+            st.markdown(f"- {doc_name}")
 
-        if st.session_state.uploaded_sources:
-            st.markdown("<div class='small-muted'>Indexed files:</div>", unsafe_allow_html=True)
-            for doc_name in st.session_state.uploaded_sources[:5]:
-                st.markdown(f"- {doc_name}")
+    st.markdown("---")
+    summary_refresh = st.button("Refresh Runtime Metrics", use_container_width=True)
+    if summary_refresh or (time.time() - st.session_state.runtime_summary_ts) > 30:
+        st.session_state.runtime_summary = fetch_runtime_summary()
+        st.session_state.runtime_summary_ts = time.time()
 
-with chat_col:
-    with st.container(border=True):
-        if routing_mode == "chat_only":
-            mode_text = "Chat Only Mode"
-            mode_class = "warn"
-        elif routing_mode == "rag_only":
-            mode_text = "RAG Only Mode" if st.session_state.vector_db_path else "RAG Only (No Knowledge Base)"
-            mode_class = "ok" if st.session_state.vector_db_path else "warn"
+    with st.expander("Runtime Metrics", expanded=False):
+        summary = st.session_state.runtime_summary
+        if summary:
+            left_m, right_m = st.columns(2)
+            left_m.metric("Requests", summary.get("requests_total", 0))
+            right_m.metric("Errors", summary.get("errors_total", 0))
+            left_m.metric("Avg Latency (ms)", summary.get("avg_request_latency_ms", 0))
+            right_m.metric("Est. Cost (USD)", summary.get("estimated_cost_usd_total", 0))
         else:
-            mode_text = "Using Knowledge Base" if st.session_state.vector_db_path else "General Chat Mode"
-            mode_class = "ok" if st.session_state.vector_db_path else "warn"
-        st.markdown(
-            f"""
-            <div class="chip-row">
-                <span class="chip">Provider: {provider}</span>
-                <span class="chip">Model: {selected_model}</span>
-                <span class="chip">Routing: {routing_mode_label}</span>
-                <span class="chip {mode_class}">{mode_text}</span>
-            </div>
-            """,
-            unsafe_allow_html=True,
+            st.caption("Metrics unavailable.")
+
+if routing_mode == "chat_only":
+    mode_text = "Chat Only Mode"
+    mode_class = "warn"
+elif routing_mode == "rag_only":
+    mode_text = "RAG Only Mode" if st.session_state.vector_db_path else "RAG Only (No Knowledge Base)"
+    mode_class = "ok" if st.session_state.vector_db_path else "warn"
+else:
+    mode_text = "Using Knowledge Base" if st.session_state.vector_db_path else "General Chat Mode"
+    mode_class = "ok" if st.session_state.vector_db_path else "warn"
+
+st.markdown(
+    f"""
+    <div class="hero hero-center">
+        <div class="hero-logo">{logo_markup}</div>
+        <div>
+            <h1>ShinzoGPT</h1>
+            <p>Ask anything. Attach knowledge only when you want grounded answers.</p>
+        </div>
+    </div>
+    <div class="chip-row chip-row-center">
+        <span class="chip">Provider: {provider}</span>
+        <span class="chip">Model: {selected_model}</span>
+        <span class="chip">Routing: {routing_mode_label}</span>
+        <span class="chip {mode_class}">{mode_text}</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+if not st.session_state.chat_history:
+    st.markdown(
+        """
+        <div class="quick-pills">
+            <span class="quick-pill">DeepSearch</span>
+            <span class="quick-pill">Imagine</span>
+            <span class="quick-pill">Document Q&A</span>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+with st.container():
+    history_len = len(st.session_state.chat_history)
+    for idx, message in enumerate(st.session_state.chat_history):
+        if message.get("role") == "user":
+            message["content"] = normalize_message_content("user", message.get("content", ""))
+        render_message(
+            message["role"],
+            message["content"],
+            message.get("meta"),
+            is_latest=(idx == history_len - 1),
         )
 
-        if not st.session_state.chat_history:
-            st.markdown(
-                """
-                <div class="empty-state">
-                    Start by asking anything, or upload PDFs on the left to enable document-grounded answers.
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+st.markdown('<div class="prompt-hint">What is on your mind?</div>', unsafe_allow_html=True)
+with st.form("prompt_form", clear_on_submit=True):
+    prompt_col, send_col = st.columns([8.5, 1.5], gap="small")
+    with prompt_col:
+        user_prompt = st.text_input(
+            "Prompt",
+            placeholder="Ask ShinzoGPT...",
+            label_visibility="collapsed",
+        )
+    with send_col:
+        send_pressed = st.form_submit_button("Send", use_container_width=True)
 
-        history_len = len(st.session_state.chat_history)
-        for idx, message in enumerate(st.session_state.chat_history):
-            if message.get("role") == "user":
-                message["content"] = normalize_message_content("user", message.get("content", ""))
-            render_message(
-                message["role"],
-                message["content"],
-                message.get("meta"),
-                is_latest=(idx == history_len - 1),
-            )
-
-    user_prompt = st.chat_input("Ask ShinzoGPT...")
+if not send_pressed:
+    user_prompt = ""
 
 if user_prompt:
     cleaned_prompt = normalize_message_content("user", user_prompt).strip()
