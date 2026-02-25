@@ -1,32 +1,87 @@
-from fastapi import FastAPI,UploadFile,File,HTTPException
+import os
+import threading
+import time
+import uuid
+from collections import defaultdict, deque
+from typing import List, Optional
+
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
-from typing import List,Optional 
-import os 
-import shutil 
 
-#Import the functions from rag_utility
-from rag_utility import process_documents_to_chroma_db,answer_question_with_agent
-
-#LangChain LLM Wrappers
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
-from langchain_google_genai import ChatGoogleGenerativeAI
 
-app=FastAPI(
+from observability import estimate_cost_usd, estimate_tokens, log_event, metrics_store
+from rag_utility import answer_question_with_agent, process_documents_to_chroma_db
+
+
+MAX_QUERY_CHARS = int(os.getenv("MAX_QUERY_CHARS", "2000"))
+MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "5"))
+MAX_UPLOAD_FILE_MB = int(os.getenv("MAX_UPLOAD_FILE_MB", "20"))
+MAX_UPLOAD_FILE_BYTES = MAX_UPLOAD_FILE_MB * 1024 * 1024
+LLM_RETRY_ATTEMPTS = int(os.getenv("LLM_RETRY_ATTEMPTS", "2"))
+LLM_RETRY_BASE_DELAY_SEC = float(os.getenv("LLM_RETRY_BASE_DELAY_SEC", "0.5"))
+OBSERVABILITY_TOKEN = os.getenv("OBSERVABILITY_TOKEN", "")
+
+
+PROVIDER_MODELS = {
+    "Groq": {"llama-3.3-70b-versatile", "llama-3.1-8b-instant"},
+    "Gemini": {"gemini-2.0-flash", "gemini-1.5-flash"},
+    "Moonshot Kimi": {"kimi-k2.5", "moonshot-v1-8k", "moonshot-v1-32k", "moonshotai/kimi-k2.5", "moonshotai/kimi-k2-thinking"},
+}
+
+PROVIDER_ENV_KEYS = {
+    "Groq": "GROQ_API_KEY",
+    "Gemini": "GOOGLE_API_KEY",
+    "Moonshot Kimi": "MOONSHOT_API_KEY",
+}
+
+
+class InMemoryRateLimiter:
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._requests = defaultdict(deque)
+        self._limits = {
+            "chat": (int(os.getenv("CHAT_RATE_LIMIT_PER_MIN", "60")), 60),
+            "upload": (int(os.getenv("UPLOAD_RATE_LIMIT_PER_MIN", "10")), 60),
+        }
+
+    def is_allowed(self, bucket: str, client_key: str) -> tuple[bool, float]:
+        max_requests, window_sec = self._limits[bucket]
+        now = time.time()
+        rate_key = f"{bucket}:{client_key}"
+
+        with self._lock:
+            entries = self._requests[rate_key]
+            while entries and (now - entries[0]) > window_sec:
+                entries.popleft()
+
+            if len(entries) >= max_requests:
+                retry_after = max(0.0, window_sec - (now - entries[0]))
+                return False, retry_after
+
+            entries.append(now)
+            return True, 0.0
+
+
+rate_limiter = InMemoryRateLimiter()
+
+
+app = FastAPI(
     title="ShinzoGPT Agentic RAG API",
     description="Backend API for the Agentic Retrieval-Augmented Generation chatbot.",
-    version="1.0"
+    version="1.1",
 )
 
-#DATA MODELS 
-#Pydantic models validate the incoming JSON payloads 
+
 class ChatRequest(BaseModel):
-    query:str
-    provider:str
-    model:str
-    api_key:str
-    vector_db_path:Optional[str]=None
-    is_nvidia_key:bool=False
+    query: str
+    provider: str
+    model: str
+    api_key: Optional[str] = None
+    vector_db_path: Optional[str] = None
+    is_nvidia_key: bool = False
 
 
 def should_use_rag(query: str) -> bool:
@@ -38,81 +93,285 @@ def should_use_rag(query: str) -> bool:
         return False
 
     doc_markers = [
-        "document", "documents", "pdf", "file", "uploaded", "upload",
-        "admit card", "resume", "invoice", "this card", "this file", "from the doc",
-        "from this", "according to the document", "in the document"
+        "document",
+        "documents",
+        "pdf",
+        "file",
+        "uploaded",
+        "upload",
+        "admit card",
+        "resume",
+        "invoice",
+        "this card",
+        "this file",
+        "from the doc",
+        "from this",
+        "according to the document",
+        "in the document",
     ]
     if any(marker in q for marker in doc_markers):
         return True
 
     general_prefixes = (
-        "what is", "what are", "who is", "who are", "when is", "when was",
-        "where is", "why is", "how does", "how do", "explain", "define",
-        "tell me about", "give me an overview", "example of"
+        "what is",
+        "what are",
+        "who is",
+        "who are",
+        "when is",
+        "when was",
+        "where is",
+        "why is",
+        "how does",
+        "how do",
+        "explain",
+        "define",
+        "tell me about",
+        "give me an overview",
+        "example of",
     )
     if q.startswith(general_prefixes):
         return False
 
     return True
 
-#Utilities
-def get_llm(provider:str,model:str,api_key:str,is_nvidia_key:bool):
-    """Instantiates the correct LLM based on the user's request payload."""
-    if provider=="Groq":
-        return ChatGroq(model=model,api_key=api_key)
-    elif provider=="Gemini":
-        return ChatGoogleGenerativeAI(model=model,google_api_key=api_key)
-    elif provider=="Moonshot Kimi":
-        base="https://integrate.api.nvidia.com/v1" if is_nvidia_key else "https://api.moonshot.cn/v1"
-        return ChatOpenAI(model=model,api_key=api_key,base_url=base)
+
+def get_llm(provider: str, model: str, api_key: str, is_nvidia_key: bool):
+    """Instantiates the correct LLM based on the request payload."""
+    if provider == "Groq":
+        return ChatGroq(model=model, api_key=api_key)
+    if provider == "Gemini":
+        return ChatGoogleGenerativeAI(model=model, google_api_key=api_key)
+    if provider == "Moonshot Kimi":
+        base_url = "https://integrate.api.nvidia.com/v1" if is_nvidia_key else "https://api.moonshot.cn/v1"
+        return ChatOpenAI(model=model, api_key=api_key, base_url=base_url)
     raise ValueError("Invalid LLM Provider")
-    
 
-#Endpoints
+
+def invoke_with_retries(func):
+    """Simple bounded retry for flaky LLM/API operations."""
+    last_error = None
+    for attempt in range(LLM_RETRY_ATTEMPTS + 1):
+        try:
+            return func()
+        except Exception as exc:
+            last_error = exc
+            if attempt == LLM_RETRY_ATTEMPTS:
+                raise
+            delay = LLM_RETRY_BASE_DELAY_SEC * (2**attempt)
+            time.sleep(delay)
+    raise RuntimeError(f"Retry loop exited unexpectedly: {last_error}")
+
+
+def _client_ip(request: Request) -> str:
+    if request.client and request.client.host:
+        return request.client.host
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    return "unknown"
+
+
+def _enforce_rate_limit(request: Request, bucket: str) -> None:
+    ip = _client_ip(request)
+    allowed, retry_after = rate_limiter.is_allowed(bucket=bucket, client_key=ip)
+    if not allowed:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit exceeded for {bucket}. Retry in {int(retry_after) + 1} seconds.",
+        )
+
+
+def _authorize_observability(request: Request) -> None:
+    if not OBSERVABILITY_TOKEN:
+        return
+    token = request.headers.get("x-observability-token", "")
+    if token != OBSERVABILITY_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized observability access.")
+
+
+def _resolve_api_key(provider: str, request_api_key: Optional[str]) -> str:
+    if request_api_key:
+        return request_api_key
+    env_key_name = PROVIDER_ENV_KEYS.get(provider)
+    env_value = os.getenv(env_key_name, "")
+    return env_value
+
+
+def _validate_chat_payload(request: ChatRequest) -> None:
+    query = (request.query or "").strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="Query cannot be empty.")
+    if len(query) > MAX_QUERY_CHARS:
+        raise HTTPException(status_code=400, detail=f"Query exceeds {MAX_QUERY_CHARS} characters.")
+
+    if request.provider not in PROVIDER_MODELS:
+        raise HTTPException(status_code=400, detail="Unsupported provider.")
+    if request.model not in PROVIDER_MODELS[request.provider]:
+        raise HTTPException(status_code=400, detail="Unsupported model for selected provider.")
+
+    if request.vector_db_path:
+        abs_path = os.path.abspath(request.vector_db_path)
+        working_dir = os.path.dirname(os.path.abspath(__file__))
+        if not abs_path.startswith(working_dir):
+            raise HTTPException(status_code=400, detail="Invalid vector database path.")
+        if not os.path.isdir(abs_path):
+            raise HTTPException(status_code=400, detail="Vector database path does not exist.")
+
+
+@app.middleware("http")
+async def request_telemetry_middleware(request: Request, call_next):
+    request_id = str(uuid.uuid4())
+    started = time.perf_counter()
+    status_code = 500
+    path = request.url.path
+    method = request.method
+    ip = _client_ip(request)
+
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        latency_ms = (time.perf_counter() - started) * 1000
+        metrics_store.record_request(endpoint=path, method=method, status_code=status_code, latency_ms=latency_ms)
+        log_event(
+            "request_completed",
+            request_id=request_id,
+            method=method,
+            path=path,
+            status_code=status_code,
+            latency_ms=round(latency_ms, 2),
+            client_ip=ip,
+        )
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
 @app.post("/upload")
-async def upload_documents(files: List[UploadFile]=File(...)):
-    """Handles PDF uploads, saves them temporarily, and triggers the rag ingestion."""
+async def upload_documents(request: Request, files: List[UploadFile] = File(...)):
+    """Handles PDF uploads, saves them temporarily, and triggers RAG ingestion."""
+    _enforce_rate_limit(request, "upload")
+
+    if not files:
+        raise HTTPException(status_code=400, detail="No files were uploaded.")
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(status_code=400, detail=f"Upload limit exceeded. Max files: {MAX_UPLOAD_FILES}.")
+
+    class StreamlitMockFile:
+        """Helper class to match the Streamlit UploadedFile interface used by the RAG utility."""
+
+        def __init__(self, name: str, buffer: bytes):
+            self.name = name
+            self.buffer = buffer
+
+        def getbuffer(self):
+            return self.buffer
+
+    processed_files = []
+    for file in files:
+        if not file.filename:
+            raise HTTPException(status_code=400, detail="Each uploaded file must have a filename.")
+        if not file.filename.lower().endswith(".pdf"):
+            raise HTTPException(status_code=400, detail=f"Only PDF files are allowed: {file.filename}")
+
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail=f"File is empty: {file.filename}")
+        if len(content) > MAX_UPLOAD_FILE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{file.filename} exceeds {MAX_UPLOAD_FILE_MB}MB upload limit.",
+            )
+        processed_files.append(StreamlitMockFile(file.filename, content))
+
     try:
-        class StreamlitMockFile:
-            """A small helper class to match the 'uploaded_file_name' structure from Streamlit."""
-            def __init__(self,name,buffer):
-                self.name=name
-                self.buffer=buffer
-            def getbuffer(self):
-                return self.buffer
-            
-        processed_files=[]               
-        for file in files:
-            content=await file.read()
-            processed_files.append(StreamlitMockFile(file.filename,content))
-
-        db_path=process_documents_to_chroma_db(processed_files)
-
+        db_path = process_documents_to_chroma_db(processed_files)
+        metrics_store.record_upload(files_count=len(processed_files))
+        log_event("upload_processed", files_count=len(processed_files), vector_db_path=db_path)
         return {
-            "message": "Documents successfully ingested into the Vector database.",
-            "vector_db_path":db_path
+            "message": "Documents successfully ingested into the vector database.",
+            "vector_db_path": db_path,
         }
-    except Exception as e:
-        raise HTTPException(status_code=500,detail=str(e))
-    
-@app.post("/chat")
-async def chat(request : ChatRequest):
-    """Takes user queries, initializes the LLM and passes them to the LangChain Agent."""
-    try:
-        #Boot up the LLM
-        llm=get_llm(request.provider,request.model,request.api_key,request.is_nvidia_key)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_event("upload_failed", error_type=type(exc).__name__)
+        raise HTTPException(status_code=500, detail=f"Upload failed: {exc}")
 
-        #Route the query
-        if request.vector_db_path and should_use_rag(request.query):
-            #RAG mode: Use the tool calling agent
-            response = answer_question_with_agent(request.query, llm, request.vector_db_path)
+
+@app.post("/chat")
+async def chat(request: Request, payload: ChatRequest):
+    """Processes user queries with direct chat or RAG, and returns response + telemetry metrics."""
+    _enforce_rate_limit(request, "chat")
+    _validate_chat_payload(payload)
+
+    api_key = _resolve_api_key(payload.provider, payload.api_key)
+    if not api_key:
+        raise HTTPException(status_code=400, detail=f"API key for {payload.provider} is missing.")
+
+    started = time.perf_counter()
+
+    try:
+        llm = get_llm(payload.provider, payload.model, api_key, payload.is_nvidia_key)
+
+        if payload.vector_db_path and should_use_rag(payload.query):
+            response = invoke_with_retries(lambda: answer_question_with_agent(payload.query, llm, payload.vector_db_path))
             if response is None:
                 response = "I couldn't find relevant information for that in your uploaded documents."
         else:
-            #Standard Mode :Just chat with the LLM directly
-            response=llm.invoke(request.query).content
+            response = invoke_with_retries(lambda: llm.invoke(payload.query).content)
 
-        return {"response":response}
-    
-    except Exception as e:
-        raise HTTPException(status_code=500,detail=str(e))
+        latency_ms = (time.perf_counter() - started) * 1000
+        input_tokens = estimate_tokens(payload.query)
+        output_tokens = estimate_tokens(response)
+        estimated_cost = estimate_cost_usd(payload.model, input_tokens, output_tokens)
+
+        metrics_store.record_chat(
+            provider=payload.provider,
+            model=payload.model,
+            latency_ms=latency_ms,
+            input_tokens=input_tokens,
+            output_tokens=output_tokens,
+            estimated_cost_usd=estimated_cost,
+        )
+        log_event(
+            "chat_completed",
+            provider=payload.provider,
+            model=payload.model,
+            latency_ms=round(latency_ms, 2),
+            estimated_input_tokens=input_tokens,
+            estimated_output_tokens=output_tokens,
+            estimated_cost_usd=estimated_cost,
+            rag_used=bool(payload.vector_db_path and should_use_rag(payload.query)),
+        )
+
+        return {
+            "response": response,
+            "metrics": {
+                "latency_ms": round(latency_ms, 2),
+                "estimated_input_tokens": input_tokens,
+                "estimated_output_tokens": output_tokens,
+                "estimated_cost_usd": estimated_cost,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        log_event("chat_failed", error_type=type(exc).__name__)
+        raise HTTPException(status_code=500, detail=f"Chat failed: {exc}")
+
+
+@app.get("/metrics/summary")
+def metrics_summary(request: Request):
+    _authorize_observability(request)
+    return metrics_store.summary()
+
+
+@app.get("/metrics/events")
+def metrics_events(request: Request, limit: int = 50):
+    _authorize_observability(request)
+    safe_limit = max(1, min(limit, 200))
+    return {"events": metrics_store.events(limit=safe_limit)}

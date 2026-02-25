@@ -7,19 +7,59 @@ import time
 
 from dotenv import load_dotenv
 import requests
+from requests.adapters import HTTPAdapter
 import streamlit as st
+from urllib3.util.retry import Retry
 
 load_dotenv()
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
 BASE_DIR = Path(__file__).resolve().parent
 LOGO_PATH = BASE_DIR / "assets" / "shinzogpt-logo.svg"
+MAX_PROMPT_CHARS = int(os.getenv("MAX_QUERY_CHARS", "2000"))
+MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "5"))
+MAX_UPLOAD_FILE_MB = int(os.getenv("MAX_UPLOAD_FILE_MB", "20"))
+HTTP_CONNECT_TIMEOUT_SEC = float(os.getenv("HTTP_CONNECT_TIMEOUT_SEC", "6"))
+HTTP_READ_TIMEOUT_CHAT_SEC = float(os.getenv("HTTP_READ_TIMEOUT_CHAT_SEC", "180"))
+HTTP_READ_TIMEOUT_UPLOAD_SEC = float(os.getenv("HTTP_READ_TIMEOUT_UPLOAD_SEC", "360"))
 
 PROVIDER_OPTIONS = ["Groq", "Gemini", "Moonshot Kimi"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash"]
 MOONSHOT_MODELS = ["kimi-k2.5", "moonshot-v1-8k", "moonshot-v1-32k"]
 MOONSHOT_NVIDIA_MODELS = ["moonshotai/kimi-k2.5", "moonshotai/kimi-k2-thinking"]
+
+
+def build_http_session() -> requests.Session:
+    retry = Retry(
+        total=2,
+        connect=2,
+        read=2,
+        backoff_factor=0.5,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=frozenset(["GET", "POST"]),
+        raise_on_status=False,
+    )
+    adapter = HTTPAdapter(max_retries=retry)
+    session = requests.Session()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
+
+
+HTTP_SESSION = build_http_session()
+
+
+def parse_backend_error(response: requests.Response) -> str:
+    try:
+        payload = response.json()
+        if isinstance(payload, dict):
+            detail = payload.get("detail") or payload.get("message")
+            if detail:
+                return str(detail)
+    except ValueError:
+        pass
+    return response.text or f"HTTP {response.status_code}"
 
 
 def resolve_provider_config(provider: str):
@@ -54,6 +94,19 @@ def normalize_message_content(role: str, content: str) -> str:
         text = re.sub(r"(?:\r?\n)?\s*</div>\s*$", "", text, count=1, flags=re.IGNORECASE)
 
     return text
+
+
+def fetch_runtime_summary():
+    try:
+        response = HTTP_SESSION.get(
+            f"{API_URL}/metrics/summary",
+            timeout=(HTTP_CONNECT_TIMEOUT_SEC, 10),
+        )
+        if response.status_code == 200:
+            return response.json()
+    except Exception:
+        return None
+    return None
 
 
 def render_message(role: str, content: str, meta: str | None = None, is_latest: bool = False) -> None:
@@ -443,6 +496,10 @@ if "vector_db_path" not in st.session_state:
     st.session_state.vector_db_path = None
 if "uploaded_sources" not in st.session_state:
     st.session_state.uploaded_sources = []
+if "runtime_summary" not in st.session_state:
+    st.session_state.runtime_summary = None
+if "runtime_summary_ts" not in st.session_state:
+    st.session_state.runtime_summary_ts = 0.0
 
 logo_data_uri = load_logo_data_uri()
 logo_markup = (
@@ -480,6 +537,22 @@ with control_col:
             unsafe_allow_html=True,
         )
 
+        summary_refresh = st.button("Refresh Runtime Metrics", use_container_width=True)
+        if summary_refresh or (time.time() - st.session_state.runtime_summary_ts) > 30:
+            st.session_state.runtime_summary = fetch_runtime_summary()
+            st.session_state.runtime_summary_ts = time.time()
+
+        with st.expander("Runtime Metrics", expanded=False):
+            summary = st.session_state.runtime_summary
+            if summary:
+                left_m, right_m = st.columns(2)
+                left_m.metric("Requests", summary.get("requests_total", 0))
+                right_m.metric("Errors", summary.get("errors_total", 0))
+                left_m.metric("Avg Latency (ms)", summary.get("avg_request_latency_ms", 0))
+                right_m.metric("Est. Cost (USD)", summary.get("estimated_cost_usd_total", 0))
+            else:
+                st.caption("Metrics unavailable (backend unreachable or observability endpoint disabled).")
+
     with st.container(border=True):
         st.markdown("### Knowledge")
         uploaded_files = st.file_uploader(
@@ -501,10 +574,24 @@ with control_col:
             reset_chat = st.button("Reset Chat", use_container_width=True)
 
         if process_docs and uploaded_files:
+            if len(uploaded_files) > MAX_UPLOAD_FILES:
+                st.error(f"Upload limit exceeded. Max {MAX_UPLOAD_FILES} files.")
+                st.stop()
+
+            for file in uploaded_files:
+                size_mb = len(file.getvalue()) / (1024 * 1024)
+                if size_mb > MAX_UPLOAD_FILE_MB:
+                    st.error(f"{file.name} exceeds {MAX_UPLOAD_FILE_MB}MB limit.")
+                    st.stop()
+
             with st.spinner("Indexing documents..."):
                 try:
                     files_data = [("files", (f.name, f.getvalue(), "application/pdf")) for f in uploaded_files]
-                    response = requests.post(f"{API_URL}/upload", files=files_data, timeout=300)
+                    response = HTTP_SESSION.post(
+                        f"{API_URL}/upload",
+                        files=files_data,
+                        timeout=(HTTP_CONNECT_TIMEOUT_SEC, HTTP_READ_TIMEOUT_UPLOAD_SEC),
+                    )
 
                     if response.status_code == 200:
                         result = response.json()
@@ -512,7 +599,7 @@ with control_col:
                         st.session_state.uploaded_sources = [f.name for f in uploaded_files]
                         st.success("Knowledge base updated.")
                     else:
-                        st.error(f"Backend failed: {response.text}")
+                        st.error(f"Backend failed: {parse_backend_error(response)}")
                 except Exception as e:
                     st.error(f"Upload failed: {e}")
 
@@ -583,6 +670,9 @@ if user_prompt:
     cleaned_prompt = normalize_message_content("user", user_prompt).strip()
     if not cleaned_prompt:
         st.rerun()
+    if len(cleaned_prompt) > MAX_PROMPT_CHARS:
+        st.error(f"Prompt too long. Max {MAX_PROMPT_CHARS} characters.")
+        st.stop()
 
     st.session_state.chat_history.append({"role": "user", "content": cleaned_prompt})
 
@@ -603,17 +693,31 @@ if user_prompt:
                 "vector_db_path": st.session_state.vector_db_path,
                 "is_nvidia_key": is_nvidia_key,
             }
-            response = requests.post(f"{API_URL}/chat", json=payload, timeout=300)
+            response = HTTP_SESSION.post(
+                f"{API_URL}/chat",
+                json=payload,
+                timeout=(HTTP_CONNECT_TIMEOUT_SEC, HTTP_READ_TIMEOUT_CHAT_SEC),
+            )
             latency_ms = int((time.perf_counter() - start) * 1000)
 
             if response.status_code == 200:
                 result = response.json()
                 bot_reply = result.get("response", "No response from agent.")
+                backend_metrics = result.get("metrics", {})
                 mode = "RAG" if st.session_state.vector_db_path else "Chat"
-                meta = f"{provider} | {selected_model} | {mode} | {latency_ms} ms"
+                server_latency = backend_metrics.get("latency_ms", latency_ms)
+                input_tokens = backend_metrics.get("estimated_input_tokens", "-")
+                output_tokens = backend_metrics.get("estimated_output_tokens", "-")
+                cost_usd = backend_metrics.get("estimated_cost_usd", 0)
+                meta = (
+                    f"{provider} | {selected_model} | {mode} | {server_latency} ms"
+                    f" | in:{input_tokens} tok | out:{output_tokens} tok | ${cost_usd}"
+                )
                 st.session_state.chat_history.append({"role": "assistant", "content": bot_reply, "meta": meta})
             else:
-                st.session_state.chat_history.append({"role": "assistant", "content": f"Backend error: {response.text}"})
+                st.session_state.chat_history.append(
+                    {"role": "assistant", "content": f"Backend error: {parse_backend_error(response)}"}
+                )
     except Exception as e:
         st.session_state.chat_history.append(
             {"role": "assistant", "content": f"Connection error: {e}. Is FastAPI running?"}

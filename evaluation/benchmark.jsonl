@@ -1,0 +1,5 @@
+{"id":"q1","question":"What is the main contribution of the paper?","expected_sources":["NIPS-2017-attention-is-all-you-need-Paper.pdf"],"required_keywords":["transformer","attention"]}
+{"id":"q2","question":"What are the two major stacks in the architecture?","expected_sources":["NIPS-2017-attention-is-all-you-need-Paper.pdf"],"required_keywords":["encoder","decoder"]}
+{"id":"q3","question":"How does self-attention help compared with recurrence?","expected_sources":["NIPS-2017-attention-is-all-you-need-Paper.pdf"],"required_keywords":["parallel","dependency"]}
+{"id":"q4","question":"What datasets or tasks were used in evaluation?","expected_sources":["NIPS-2017-attention-is-all-you-need-Paper.pdf"],"required_keywords":["translation","WMT"]}
+{"id":"q5","question":"What is the role of positional encoding?","expected_sources":["NIPS-2017-attention-is-all-you-need-Paper.pdf"],"required_keywords":["position","sequence"]}
