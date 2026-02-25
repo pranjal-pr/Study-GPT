@@ -1,0 +1,56 @@
+name: Deploy To Hugging Face Space
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: hf-space-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          lfs: true
+
+      - name: Validate required secrets
+        run: |
+          if [ -z "${{ secrets.HF_TOKEN }}" ]; then
+            echo "Missing required secret: HF_TOKEN"
+            exit 1
+          fi
+
+          if [ -z "${{ secrets.HF_SPACE_ID }}" ]; then
+            echo "Missing required secret: HF_SPACE_ID"
+            exit 1
+          fi
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git lfs install
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_ID: ${{ secrets.HF_SPACE_ID }}
+        run: |
+          HF_REMOTE="https://huggingface.co/spaces/${HF_SPACE_ID}"
+
+          git remote remove hf-space 2>/dev/null || true
+          git remote add hf-space "${HF_REMOTE}"
+
+          # Force push so Space content always matches this GitHub commit exactly.
+          git -c http.extraHeader="Authorization: Bearer ${HF_TOKEN}" \
+            push hf-space HEAD:main --force
+
