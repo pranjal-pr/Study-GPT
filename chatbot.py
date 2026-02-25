@@ -1,4 +1,6 @@
+import base64
 import os
+from pathlib import Path
 import time
 
 from dotenv import load_dotenv
@@ -8,6 +10,8 @@ import streamlit as st
 load_dotenv()
 
 API_URL = os.getenv("API_URL", "http://127.0.0.1:8000")
+BASE_DIR = Path(__file__).resolve().parent
+LOGO_PATH = BASE_DIR / "assets" / "shinzogpt-logo.svg"
 
 PROVIDER_OPTIONS = ["Groq", "Gemini", "Moonshot Kimi"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
@@ -29,7 +33,19 @@ def resolve_provider_config(provider: str):
     return moonshot_key, False, "Model", MOONSHOT_MODELS
 
 
-st.set_page_config(page_title="ShinzoGPT", page_icon=":robot_face:", layout="wide")
+def load_logo_data_uri() -> str | None:
+    if not LOGO_PATH.exists():
+        return None
+    try:
+        svg_text = LOGO_PATH.read_text(encoding="utf-8")
+        encoded = base64.b64encode(svg_text.encode("utf-8")).decode("ascii")
+        return f"data:image/svg+xml;base64,{encoded}"
+    except OSError:
+        return None
+
+
+page_icon = str(LOGO_PATH) if LOGO_PATH.exists() else ":robot_face:"
+st.set_page_config(page_title="ShinzoGPT", page_icon=page_icon, layout="wide")
 
 st.markdown(
     """
@@ -37,15 +53,15 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
     :root {
-        --bg-top: #05182b;
-        --bg-bottom: #040b14;
-        --panel: #0b243f;
-        --panel-soft: #102b49;
-        --text-main: #f3f7fd;
-        --text-muted: #9ab2ca;
-        --accent: #1ec7ba;
-        --accent-2: #6ac5ff;
-        --border: rgba(117, 162, 209, 0.34);
+        --bg-top: #080808;
+        --bg-bottom: #0f0f0f;
+        --panel: #151515;
+        --panel-soft: #1b1b1b;
+        --surface: #111111;
+        --text-main: #f2f2f2;
+        --text-muted: #a5a5a5;
+        --border: rgba(255, 255, 255, 0.14);
+        --border-strong: rgba(255, 255, 255, 0.24);
     }
 
     html, body, [class*="css"] {
@@ -54,49 +70,78 @@ st.markdown(
 
     [data-testid="stAppViewContainer"] {
         background:
-            radial-gradient(1100px 360px at 10% -10%, rgba(30, 199, 186, 0.16), transparent 60%),
-            radial-gradient(1100px 360px at 88% -10%, rgba(106, 197, 255, 0.16), transparent 60%),
+            radial-gradient(1000px 300px at 18% -10%, rgba(255, 255, 255, 0.06), transparent 65%),
+            radial-gradient(1000px 280px at 84% -8%, rgba(180, 180, 180, 0.08), transparent 65%),
             linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
     }
 
     [data-testid="stHeader"] {
-        background: rgba(5, 10, 18, 0.5);
+        background: rgba(10, 10, 10, 0.58);
         backdrop-filter: blur(8px);
     }
 
     [data-testid="stMainBlockContainer"] {
         max-width: 1240px;
-        padding-top: 2rem;
+        padding-top: 1.8rem;
     }
 
     .hero {
         border: 1px solid var(--border);
         border-radius: 18px;
-        padding: 1.35rem 1.45rem;
-        margin-bottom: 1.2rem;
-        background: linear-gradient(140deg, rgba(16, 43, 73, 0.92), rgba(11, 36, 63, 0.92));
-        box-shadow: 0 14px 36px rgba(0, 0, 0, 0.28);
+        padding: 1.15rem 1.35rem;
+        margin-bottom: 1.15rem;
+        background: linear-gradient(160deg, #171717, #111111);
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+        display: flex;
+        align-items: center;
+        gap: 0.95rem;
+    }
+
+    .hero-logo {
+        width: 64px;
+        height: 64px;
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        background: #0f0f0f;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        flex-shrink: 0;
+    }
+
+    .hero-logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
+
+    .hero-logo-fallback {
+        font-family: "Space Grotesk", sans-serif;
+        font-weight: 700;
+        font-size: 1.1rem;
+        letter-spacing: 0.5px;
+        color: #d6d6d6;
     }
 
     .hero h1 {
         margin: 0;
         color: var(--text-main);
-        font-size: 2.15rem;
+        font-size: 2.05rem;
         font-family: "Space Grotesk", sans-serif;
         letter-spacing: 0.2px;
     }
 
     .hero p {
-        margin: 0.38rem 0 0;
+        margin: 0.3rem 0 0;
         color: var(--text-muted);
-        font-size: 0.98rem;
+        font-size: 0.95rem;
     }
 
     [data-testid="stVerticalBlockBorderWrapper"] {
         border-color: var(--border) !important;
         border-radius: 16px !important;
-        background: linear-gradient(180deg, rgba(11, 36, 63, 0.9), rgba(8, 26, 45, 0.9));
-        box-shadow: 0 10px 28px rgba(0, 0, 0, 0.2);
+        background: linear-gradient(180deg, #151515, #101010);
+        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.26);
     }
 
     .chip-row {
@@ -111,27 +156,29 @@ st.markdown(
         border-radius: 999px;
         padding: 0.28rem 0.68rem;
         font-size: 0.78rem;
-        color: #d7e7f8;
-        background: rgba(16, 43, 73, 0.75);
+        color: #dfdfdf;
+        background: #1b1b1b;
     }
 
     .chip.ok {
-        border-color: rgba(30, 199, 186, 0.58);
-        color: #b9fcf5;
+        border-color: rgba(245, 245, 245, 0.35);
+        color: #f0f0f0;
+        background: #222222;
     }
 
     .chip.warn {
-        border-color: rgba(255, 188, 93, 0.58);
-        color: #ffe5b0;
+        border-color: rgba(160, 160, 160, 0.45);
+        color: #cfcfcf;
+        background: #202020;
     }
 
     .empty-state {
         border: 1px dashed var(--border);
         border-radius: 14px;
-        padding: 1rem 1.1rem;
+        padding: 1rem 1.05rem;
         margin-top: 0.3rem;
         color: var(--text-muted);
-        background: rgba(16, 43, 73, 0.45);
+        background: rgba(255, 255, 255, 0.02);
     }
 
     .meta {
@@ -148,47 +195,72 @@ st.markdown(
     .stButton > button {
         border-radius: 12px;
         border: 1px solid var(--border);
+        background: #1c1c1c;
+        color: #efefef;
     }
 
     .stButton > button:hover {
-        border-color: rgba(30, 199, 186, 0.7);
+        border-color: var(--border-strong);
+        background: #232323;
+    }
+
+    .stButton > button:focus,
+    .stButton > button:focus-visible {
+        box-shadow: none !important;
+        border-color: var(--border-strong);
     }
 
     div[data-baseweb="select"] > div {
         border-radius: 12px;
         border: 1px solid var(--border);
-        background: rgba(16, 43, 73, 0.62);
+        background: #1a1a1a;
     }
 
     [data-testid="stFileUploader"] {
         border: 1px dashed var(--border);
         border-radius: 12px;
         padding: 0.35rem 0.45rem 0.15rem;
-        background: rgba(16, 43, 73, 0.42);
+        background: rgba(255, 255, 255, 0.02);
     }
 
     [data-testid="stChatInput"] > div {
-        border: 1px solid var(--border);
+        border: 1px solid var(--border) !important;
         border-radius: 14px;
-        background: rgba(11, 36, 63, 0.85);
+        background: #171717;
+    }
+
+    [data-testid="stChatInput"] > div:focus-within {
+        border-color: var(--border-strong) !important;
+        box-shadow: none !important;
+    }
+
+    [data-testid="stChatInput"] textarea,
+    [data-testid="stChatInput"] input {
+        color: #f2f2f2 !important;
+    }
+
+    [data-testid="stChatInput"] textarea:focus,
+    [data-testid="stChatInput"] input:focus {
+        box-shadow: none !important;
+        outline: none !important;
     }
 
     [data-testid="stChatMessage"] {
         border: 1px solid var(--border);
         border-radius: 14px;
-        background: rgba(11, 36, 63, 0.72);
+        background: #171717;
         padding: 0.25rem 0.58rem;
         margin-bottom: 0.7rem;
     }
 
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
-        border-color: rgba(30, 199, 186, 0.5);
-        background: rgba(30, 199, 186, 0.1);
+        border-color: rgba(255, 255, 255, 0.2);
+        background: #1d1d1d;
     }
 
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
-        border-color: rgba(106, 197, 255, 0.45);
-        background: rgba(106, 197, 255, 0.1);
+        border-color: rgba(255, 255, 255, 0.15);
+        background: #161616;
     }
     </style>
     """,
@@ -202,11 +274,21 @@ if "vector_db_path" not in st.session_state:
 if "uploaded_sources" not in st.session_state:
     st.session_state.uploaded_sources = []
 
+logo_data_uri = load_logo_data_uri()
+logo_markup = (
+    f'<img src="{logo_data_uri}" alt="ShinzoGPT logo" />'
+    if logo_data_uri
+    else '<div class="hero-logo-fallback">SG</div>'
+)
+
 st.markdown(
-    """
+    f"""
     <div class="hero">
-        <h1>ShinzoGPT</h1>
-        <p>Document-aware AI chat with fast model switching and source-grounded answers.</p>
+        <div class="hero-logo">{logo_markup}</div>
+        <div>
+            <h1>ShinzoGPT</h1>
+            <p>Document-aware AI chat with fast model switching and source-grounded answers.</p>
+        </div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -217,7 +299,6 @@ control_col, chat_col = st.columns([1, 2.1], gap="large")
 with control_col:
     with st.container(border=True):
         st.markdown("### Session Controls")
-
         provider = st.selectbox("Provider", PROVIDER_OPTIONS)
         api_key, is_nvidia_key, model_label, model_options = resolve_provider_config(provider)
         selected_model = st.selectbox(model_label, model_options)
