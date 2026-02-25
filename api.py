@@ -8,10 +8,6 @@ from typing import List, Optional
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
-from langchain_openai import ChatOpenAI
-
 from observability import estimate_cost_usd, estimate_tokens, log_event, metrics_store
 from rag_utility import answer_question_with_agent, process_documents_to_chroma_db
 
@@ -138,10 +134,16 @@ def should_use_rag(query: str) -> bool:
 def get_llm(provider: str, model: str, api_key: str, is_nvidia_key: bool):
     """Instantiates the correct LLM based on the request payload."""
     if provider == "Groq":
+        from langchain_groq import ChatGroq
+
         return ChatGroq(model=model, api_key=api_key)
     if provider == "Gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+
         return ChatGoogleGenerativeAI(model=model, google_api_key=api_key)
     if provider == "Moonshot Kimi":
+        from langchain_openai import ChatOpenAI
+
         base_url = "https://integrate.api.nvidia.com/v1" if is_nvidia_key else "https://api.moonshot.cn/v1"
         return ChatOpenAI(model=model, api_key=api_key, base_url=base_url)
     raise ValueError("Invalid LLM Provider")
