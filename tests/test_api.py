@@ -1,3 +1,6 @@
+import shutil
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
 import api
@@ -59,6 +62,7 @@ def test_chat_success_returns_metrics(monkeypatch):
     assert "response" in body
     assert "metrics" in body
     assert "estimated_input_tokens" in body["metrics"]
+    assert body["route_used"] == "chat"
 
 
 def test_upload_rejects_non_pdf(monkeypatch):
@@ -88,3 +92,60 @@ def test_upload_success(monkeypatch):
     response = client.post("/upload", files=files)
     assert response.status_code == 200
     assert response.json()["vector_db_path"] == "/tmp/vector_db_test"
+
+
+def test_should_use_rag_with_conversational_prefix():
+    assert api.should_use_rag("so tell me about machine learning") is False
+
+
+def test_rag_only_requires_vector_db(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+    payload = {
+        "query": "what is this document about?",
+        "provider": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "api_key": "dummy",
+        "routing_mode": "rag_only",
+    }
+    response = client.post("/chat", json=payload)
+    assert response.status_code == 400
+    assert "no knowledge base" in response.json()["detail"].lower()
+
+
+def test_chat_only_forces_non_rag(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+
+    class DummyResponse:
+        content = "plain chat response"
+
+    class DummyLLM:
+        def invoke(self, _query):
+            return DummyResponse()
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+    called = {"rag": False}
+
+    def fake_rag(*_args, **_kwargs):
+        called["rag"] = True
+        return "rag response"
+
+    monkeypatch.setattr(api, "answer_question_with_agent", fake_rag)
+
+    working_dir = Path(api.__file__).resolve().parent
+    test_vector_dir = working_dir / "tests_tmp_vector_db"
+    test_vector_dir.mkdir(exist_ok=True)
+    try:
+        payload = {
+            "query": "this document summary please",
+            "provider": "Groq",
+            "model": "llama-3.3-70b-versatile",
+            "api_key": "dummy",
+            "vector_db_path": str(test_vector_dir),
+            "routing_mode": "chat_only",
+        }
+        response = client.post("/chat", json=payload)
+        assert response.status_code == 200
+        assert response.json()["route_used"] == "chat"
+        assert called["rag"] is False
+    finally:
+        shutil.rmtree(test_vector_dir, ignore_errors=True)

@@ -28,6 +28,8 @@ GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
 GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash"]
 MOONSHOT_MODELS = ["kimi-k2.5", "moonshot-v1-8k", "moonshot-v1-32k"]
 MOONSHOT_NVIDIA_MODELS = ["moonshotai/kimi-k2.5", "moonshotai/kimi-k2-thinking"]
+ROUTING_OPTIONS = ["Auto", "Chat only", "RAG only"]
+ROUTING_MODE_MAP = {"Auto": "auto", "Chat only": "chat_only", "RAG only": "rag_only"}
 
 
 def build_http_session() -> requests.Session:
@@ -529,6 +531,13 @@ with control_col:
         provider = st.selectbox("Provider", PROVIDER_OPTIONS)
         api_key, is_nvidia_key, model_label, model_options = resolve_provider_config(provider)
         selected_model = st.selectbox(model_label, model_options)
+        routing_mode_label = st.selectbox(
+            "Routing",
+            ROUTING_OPTIONS,
+            index=0,
+            help="Auto chooses between chat and RAG. Chat only ignores docs. RAG only forces doc-grounded answers.",
+        )
+        routing_mode = ROUTING_MODE_MAP[routing_mode_label]
 
         key_chip = "Connected" if api_key else "Missing"
         key_class = "ok" if api_key else "warn"
@@ -630,13 +639,21 @@ with control_col:
 
 with chat_col:
     with st.container(border=True):
-        mode_text = "Using Knowledge Base" if st.session_state.vector_db_path else "General Chat Mode"
-        mode_class = "ok" if st.session_state.vector_db_path else "warn"
+        if routing_mode == "chat_only":
+            mode_text = "Chat Only Mode"
+            mode_class = "warn"
+        elif routing_mode == "rag_only":
+            mode_text = "RAG Only Mode" if st.session_state.vector_db_path else "RAG Only (No Knowledge Base)"
+            mode_class = "ok" if st.session_state.vector_db_path else "warn"
+        else:
+            mode_text = "Using Knowledge Base" if st.session_state.vector_db_path else "General Chat Mode"
+            mode_class = "ok" if st.session_state.vector_db_path else "warn"
         st.markdown(
             f"""
             <div class="chip-row">
                 <span class="chip">Provider: {provider}</span>
                 <span class="chip">Model: {selected_model}</span>
+                <span class="chip">Routing: {routing_mode_label}</span>
                 <span class="chip {mode_class}">{mode_text}</span>
             </div>
             """,
@@ -692,6 +709,7 @@ if user_prompt:
                 "api_key": api_key,
                 "vector_db_path": st.session_state.vector_db_path,
                 "is_nvidia_key": is_nvidia_key,
+                "routing_mode": routing_mode,
             }
             response = HTTP_SESSION.post(
                 f"{API_URL}/chat",
@@ -704,7 +722,8 @@ if user_prompt:
                 result = response.json()
                 bot_reply = result.get("response", "No response from agent.")
                 backend_metrics = result.get("metrics", {})
-                mode = "RAG" if st.session_state.vector_db_path else "Chat"
+                route_used = (result.get("route_used") or "").lower()
+                mode = "RAG" if route_used == "rag" else "Chat"
                 server_latency = backend_metrics.get("latency_ms", latency_ms)
                 input_tokens = backend_metrics.get("estimated_input_tokens", "-")
                 output_tokens = backend_metrics.get("estimated_output_tokens", "-")

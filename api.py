@@ -1,4 +1,5 @@
 import os
+import re
 import threading
 import time
 import uuid
@@ -78,13 +79,36 @@ class ChatRequest(BaseModel):
     api_key: Optional[str] = None
     vector_db_path: Optional[str] = None
     is_nvidia_key: bool = False
+    routing_mode: str = "auto"
+
+
+def _normalize_query_for_routing(query: str) -> str:
+    q = (query or "").strip().lower()
+    q = re.sub(r"\s+", " ", q)
+
+    # Remove conversational fillers so "so tell me about ..." behaves like "tell me about ...".
+    filler_patterns = [
+        r"^(hey|hi|hello|yo|hii+|hola|ok|okay|well|so|please|pls)\s+",
+        r"^(can you|could you|would you|will you|kindly)\s+",
+    ]
+
+    changed = True
+    while changed:
+        changed = False
+        for pattern in filler_patterns:
+            new_q = re.sub(pattern, "", q)
+            if new_q != q:
+                q = new_q.strip()
+                changed = True
+
+    return q
 
 
 def should_use_rag(query: str) -> bool:
     """
     Route clearly general-knowledge prompts to normal LLM chat even when a vector DB exists.
     """
-    q = query.strip().lower()
+    q = _normalize_query_for_routing(query)
     if not q:
         return False
 
@@ -104,6 +128,9 @@ def should_use_rag(query: str) -> bool:
         "from this",
         "according to the document",
         "in the document",
+        "this paper",
+        "that paper",
+        "from the paper",
     ]
     if any(marker in q for marker in doc_markers):
         return True
@@ -123,6 +150,8 @@ def should_use_rag(query: str) -> bool:
         "define",
         "tell me about",
         "give me an overview",
+        "give me an overview of",
+        "overview of",
         "example of",
     )
     if q.startswith(general_prefixes):
@@ -210,6 +239,8 @@ def _validate_chat_payload(request: ChatRequest) -> None:
         raise HTTPException(status_code=400, detail="Unsupported provider.")
     if request.model not in PROVIDER_MODELS[request.provider]:
         raise HTTPException(status_code=400, detail="Unsupported model for selected provider.")
+    if request.routing_mode not in {"auto", "chat_only", "rag_only"}:
+        raise HTTPException(status_code=400, detail="Invalid routing_mode. Use auto, chat_only, or rag_only.")
 
     if request.vector_db_path:
         abs_path = os.path.abspath(request.vector_db_path)
@@ -319,7 +350,16 @@ async def chat(request: Request, payload: ChatRequest):
     try:
         llm = get_llm(payload.provider, payload.model, api_key, payload.is_nvidia_key)
 
-        if payload.vector_db_path and should_use_rag(payload.query):
+        if payload.routing_mode == "chat_only":
+            use_rag = False
+        elif payload.routing_mode == "rag_only":
+            if not payload.vector_db_path:
+                raise HTTPException(status_code=400, detail="RAG-only mode selected, but no knowledge base is attached.")
+            use_rag = True
+        else:
+            use_rag = bool(payload.vector_db_path and should_use_rag(payload.query))
+
+        if use_rag:
             response = invoke_with_retries(lambda: answer_question_with_agent(payload.query, llm, payload.vector_db_path))
             if response is None:
                 response = "I couldn't find relevant information for that in your uploaded documents."
@@ -347,11 +387,13 @@ async def chat(request: Request, payload: ChatRequest):
             estimated_input_tokens=input_tokens,
             estimated_output_tokens=output_tokens,
             estimated_cost_usd=estimated_cost,
-            rag_used=bool(payload.vector_db_path and should_use_rag(payload.query)),
+            rag_used=use_rag,
+            routing_mode=payload.routing_mode,
         )
 
         return {
             "response": response,
+            "route_used": "rag" if use_rag else "chat",
             "metrics": {
                 "latency_ms": round(latency_ms, 2),
                 "estimated_input_tokens": input_tokens,
