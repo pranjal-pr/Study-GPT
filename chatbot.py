@@ -341,23 +341,6 @@ st.markdown(
         background: rgba(255, 255, 255, 0.01);
     }
 
-    .quick-pills {
-        display: flex;
-        justify-content: center;
-        flex-wrap: wrap;
-        gap: 0.55rem;
-        margin: 0.8rem 0 1.2rem;
-    }
-
-    .quick-pill {
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: rgba(18, 18, 22, 0.85);
-        color: #d7dbe5;
-        font-size: 0.85rem;
-        padding: 0.42rem 0.92rem;
-    }
-
     .prompt-hint {
         color: var(--txt-muted);
         text-align: center;
@@ -764,18 +747,6 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-
-if not st.session_state.chat_history:
-    st.markdown(
-        """
-        <div class="quick-pills">
-            <span class="quick-pill">DeepSearch</span>
-            <span class="quick-pill">Imagine</span>
-            <span class="quick-pill">Document Q&A</span>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
 
 with st.container():
     history_len = len(st.session_state.chat_history)
