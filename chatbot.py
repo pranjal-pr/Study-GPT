@@ -2,6 +2,7 @@ import base64
 import html
 import os
 from pathlib import Path
+import re
 import time
 
 from dotenv import load_dotenv
@@ -45,22 +46,31 @@ def load_logo_data_uri() -> str | None:
         return None
 
 
+def normalize_message_content(role: str, content: str) -> str:
+    text = content or ""
+
+    # Defensive cleanup: older custom markup could leak a trailing literal </div> in user messages.
+    if role == "user":
+        text = re.sub(r"(?:\r?\n)?\s*</div>\s*$", "", text, count=1, flags=re.IGNORECASE)
+
+    return text
+
+
 def render_message(role: str, content: str, meta: str | None = None) -> None:
     role_class = "user" if role == "user" else "assistant"
-    safe_content = html.escape(content).replace("\n", "<br>")
+    clean_content = normalize_message_content(role, content)
+    safe_content = html.escape(clean_content).replace("\n", "<br>")
     meta_html = f'<div class="sg-meta">{html.escape(meta)}</div>' if meta else ""
 
-    st.markdown(
-        f"""
-        <div class="sg-msg {role_class}">
-            <div class="sg-body">
-                <div class="sg-text">{safe_content}</div>
-                {meta_html}
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
+    message_html = (
+        f'<div class="sg-msg {role_class}">'
+        '<div class="sg-body">'
+        f'<div class="sg-text">{safe_content}</div>'
+        f"{meta_html}"
+        "</div>"
+        "</div>"
     )
+    st.markdown(message_html, unsafe_allow_html=True)
 
 
 page_icon = str(LOGO_PATH) if LOGO_PATH.exists() else ":robot_face:"
@@ -473,12 +483,18 @@ with chat_col:
             )
 
         for message in st.session_state.chat_history:
+            if message.get("role") == "user":
+                message["content"] = normalize_message_content("user", message.get("content", ""))
             render_message(message["role"], message["content"], message.get("meta"))
 
     user_prompt = st.chat_input("Ask ShinzoGPT...")
 
 if user_prompt:
-    st.session_state.chat_history.append({"role": "user", "content": user_prompt})
+    cleaned_prompt = normalize_message_content("user", user_prompt).strip()
+    if not cleaned_prompt:
+        st.rerun()
+
+    st.session_state.chat_history.append({"role": "user", "content": cleaned_prompt})
 
     if not api_key:
         st.session_state.chat_history.append(
@@ -490,7 +506,7 @@ if user_prompt:
         with st.spinner("Thinking..."):
             start = time.perf_counter()
             payload = {
-                "query": user_prompt,
+                "query": cleaned_prompt,
                 "provider": provider,
                 "model": selected_model,
                 "api_key": api_key,
