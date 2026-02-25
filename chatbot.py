@@ -56,14 +56,15 @@ def normalize_message_content(role: str, content: str) -> str:
     return text
 
 
-def render_message(role: str, content: str, meta: str | None = None) -> None:
+def render_message(role: str, content: str, meta: str | None = None, is_latest: bool = False) -> None:
     role_class = "user" if role == "user" else "assistant"
+    latest_class = " new" if is_latest else ""
     clean_content = normalize_message_content(role, content)
     safe_content = html.escape(clean_content).replace("\n", "<br>")
     meta_html = f'<div class="sg-meta">{html.escape(meta)}</div>' if meta else ""
 
     message_html = (
-        f'<div class="sg-msg {role_class}">'
+        f'<div class="sg-msg {role_class}{latest_class}">'
         '<div class="sg-body">'
         f'<div class="sg-text">{safe_content}</div>'
         f"{meta_html}"
@@ -95,6 +96,7 @@ st.markdown(
     html, body, [class*="css"] {
         font-family: "IBM Plex Sans", sans-serif;
         color: var(--txt-main);
+        scroll-behavior: smooth;
     }
 
     [data-testid="stAppViewContainer"] {
@@ -141,6 +143,13 @@ st.markdown(
         display: flex;
         align-items: center;
         gap: 0.95rem;
+        animation: sg-fade-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        transition: box-shadow 200ms ease, border-color 200ms ease;
+    }
+
+    .hero:hover {
+        border-color: var(--line-strong);
+        box-shadow: 0 20px 40px rgba(0, 0, 0, 0.43);
     }
 
     .hero-logo {
@@ -190,6 +199,12 @@ st.markdown(
         background:
             linear-gradient(180deg, rgba(20, 20, 20, 0.94), rgba(12, 12, 12, 0.95));
         box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
+        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+    }
+
+    [data-testid="stVerticalBlockBorderWrapper"]:hover {
+        border-color: var(--line-strong) !important;
+        box-shadow: 0 14px 26px rgba(0, 0, 0, 0.32);
     }
 
     .chip-row {
@@ -206,6 +221,12 @@ st.markdown(
         font-size: 0.77rem;
         color: #dedede;
         background: var(--bg-pill);
+        transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+    }
+
+    .chip:hover {
+        border-color: var(--line-strong);
+        transform: translateY(-1px);
     }
 
     .chip.ok {
@@ -237,7 +258,7 @@ st.markdown(
         border: 1px solid var(--line);
         background: #1d1d1d;
         color: #efefef;
-        transition: all 120ms ease-in-out;
+        transition: border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
     }
 
     .stButton > button:hover {
@@ -256,6 +277,12 @@ st.markdown(
         border-radius: 12px;
         border: 1px solid var(--line);
         background: #181818;
+        transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+    }
+
+    div[data-baseweb="select"] > div:hover {
+        border-color: var(--line-strong);
+        background: #1d1d1d;
     }
 
     [data-testid="stFileUploader"] {
@@ -263,6 +290,12 @@ st.markdown(
         border-radius: 12px;
         padding: 0.35rem 0.44rem 0.15rem;
         background: rgba(255, 255, 255, 0.012);
+        transition: border-color 180ms ease, background 180ms ease;
+    }
+
+    [data-testid="stFileUploader"]:hover {
+        border-color: var(--line-strong);
+        background: rgba(255, 255, 255, 0.03);
     }
 
     [data-testid="stChatInput"] {
@@ -275,6 +308,7 @@ st.markdown(
         background:
             linear-gradient(180deg, rgba(30, 30, 30, 0.95), rgba(20, 20, 20, 0.95));
         box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
+        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
     }
 
     [data-testid="stChatInput"] > div:focus-within {
@@ -300,6 +334,16 @@ st.markdown(
         padding: 0.62rem 0.82rem;
         margin-bottom: 0.68rem;
         background: #151515;
+        transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+
+    .sg-msg:hover {
+        border-color: var(--line-strong);
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+    }
+
+    .sg-msg.new {
+        animation: sg-fade-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
     }
 
     .sg-msg.user {
@@ -332,6 +376,46 @@ st.markdown(
         margin-top: 0.36rem;
         color: #9a9a9a;
         font-size: 0.77rem;
+    }
+
+    ::-webkit-scrollbar {
+        width: 10px;
+        height: 10px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background: rgba(255, 255, 255, 0.02);
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.16);
+        border-radius: 8px;
+        border: 2px solid transparent;
+        background-clip: content-box;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.28);
+        background-clip: content-box;
+    }
+
+    @keyframes sg-fade-up {
+        from {
+            opacity: 0;
+            transform: translateY(8px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        * {
+            animation: none !important;
+            transition: none !important;
+            scroll-behavior: auto !important;
+        }
     }
 
     @media (max-width: 980px) {
@@ -482,10 +566,16 @@ with chat_col:
                 unsafe_allow_html=True,
             )
 
-        for message in st.session_state.chat_history:
+        history_len = len(st.session_state.chat_history)
+        for idx, message in enumerate(st.session_state.chat_history):
             if message.get("role") == "user":
                 message["content"] = normalize_message_content("user", message.get("content", ""))
-            render_message(message["role"], message["content"], message.get("meta"))
+            render_message(
+                message["role"],
+                message["content"],
+                message.get("meta"),
+                is_latest=(idx == history_len - 1),
+            )
 
     user_prompt = st.chat_input("Ask ShinzoGPT...")
 
