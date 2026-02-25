@@ -53,60 +53,78 @@ st.markdown(
     @import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap');
 
     :root {
-        --bg-top: #080808;
-        --bg-bottom: #0f0f0f;
-        --panel: #151515;
-        --panel-soft: #1b1b1b;
-        --surface: #111111;
-        --text-main: #f2f2f2;
-        --text-muted: #a5a5a5;
-        --border: rgba(255, 255, 255, 0.14);
-        --border-strong: rgba(255, 255, 255, 0.24);
+        --bg-base: #060606;
+        --bg-panel: #121212;
+        --bg-panel-soft: #171717;
+        --bg-pill: #1c1c1c;
+        --txt-main: #f1f1f1;
+        --txt-muted: #a4a4a4;
+        --line: rgba(255, 255, 255, 0.13);
+        --line-strong: rgba(255, 255, 255, 0.24);
     }
 
     html, body, [class*="css"] {
         font-family: "IBM Plex Sans", sans-serif;
+        color: var(--txt-main);
     }
 
     [data-testid="stAppViewContainer"] {
         background:
-            radial-gradient(1000px 300px at 18% -10%, rgba(255, 255, 255, 0.06), transparent 65%),
-            radial-gradient(1000px 280px at 84% -8%, rgba(180, 180, 180, 0.08), transparent 65%),
-            linear-gradient(180deg, var(--bg-top) 0%, var(--bg-bottom) 100%);
+            radial-gradient(1px 1px at 40px 90px, rgba(255, 255, 255, 0.40), transparent 100%),
+            radial-gradient(1px 1px at 120px 40px, rgba(255, 255, 255, 0.28), transparent 100%),
+            radial-gradient(1.2px 1.2px at 220px 160px, rgba(255, 255, 255, 0.36), transparent 100%),
+            radial-gradient(1px 1px at 300px 100px, rgba(255, 255, 255, 0.30), transparent 100%),
+            radial-gradient(1.3px 1.3px at 430px 230px, rgba(255, 255, 255, 0.35), transparent 100%),
+            radial-gradient(1.1px 1.1px at 510px 60px, rgba(255, 255, 255, 0.28), transparent 100%),
+            radial-gradient(800px 300px at 50% -180px, rgba(255, 255, 255, 0.09), transparent 70%),
+            linear-gradient(180deg, #040404 0%, #0a0a0a 100%);
+        background-size:
+            260px 260px,
+            330px 330px,
+            420px 420px,
+            500px 500px,
+            640px 640px,
+            760px 760px,
+            100% 100%,
+            100% 100%;
+        background-attachment: fixed;
     }
 
     [data-testid="stHeader"] {
-        background: rgba(10, 10, 10, 0.58);
+        background: rgba(8, 8, 8, 0.62);
         backdrop-filter: blur(8px);
     }
 
     [data-testid="stMainBlockContainer"] {
-        max-width: 1240px;
-        padding-top: 1.8rem;
+        max-width: 1220px;
+        padding-top: 1.6rem;
     }
 
     .hero {
-        border: 1px solid var(--border);
+        border: 1px solid var(--line);
         border-radius: 18px;
-        padding: 1.15rem 1.35rem;
-        margin-bottom: 1.15rem;
-        background: linear-gradient(160deg, #171717, #111111);
-        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
+        padding: 1.15rem 1.3rem;
+        margin-bottom: 1.05rem;
+        background:
+            linear-gradient(130deg, rgba(255, 255, 255, 0.05), transparent 40%),
+            linear-gradient(180deg, rgba(18, 18, 18, 0.97), rgba(11, 11, 11, 0.97));
+        box-shadow: 0 16px 34px rgba(0, 0, 0, 0.38);
         display: flex;
         align-items: center;
         gap: 0.95rem;
     }
 
     .hero-logo {
-        width: 64px;
-        height: 64px;
+        width: 62px;
+        height: 62px;
         border-radius: 14px;
-        border: 1px solid var(--border);
+        border: 1px solid var(--line-strong);
         background: #0f0f0f;
         display: flex;
         align-items: center;
         justify-content: center;
         flex-shrink: 0;
+        box-shadow: inset 0 0 22px rgba(255, 255, 255, 0.05);
     }
 
     .hero-logo img {
@@ -118,120 +136,127 @@ st.markdown(
     .hero-logo-fallback {
         font-family: "Space Grotesk", sans-serif;
         font-weight: 700;
-        font-size: 1.1rem;
+        font-size: 1.08rem;
         letter-spacing: 0.5px;
-        color: #d6d6d6;
+        color: #d8d8d8;
     }
 
     .hero h1 {
         margin: 0;
-        color: var(--text-main);
-        font-size: 2.05rem;
         font-family: "Space Grotesk", sans-serif;
+        font-size: 2rem;
         letter-spacing: 0.2px;
+        color: var(--txt-main);
     }
 
     .hero p {
         margin: 0.3rem 0 0;
-        color: var(--text-muted);
-        font-size: 0.95rem;
+        color: var(--txt-muted);
+        font-size: 0.94rem;
     }
 
     [data-testid="stVerticalBlockBorderWrapper"] {
-        border-color: var(--border) !important;
+        border: 1px solid var(--line) !important;
         border-radius: 16px !important;
-        background: linear-gradient(180deg, #151515, #101010);
-        box-shadow: 0 10px 25px rgba(0, 0, 0, 0.26);
+        background:
+            linear-gradient(180deg, rgba(20, 20, 20, 0.94), rgba(12, 12, 12, 0.95));
+        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.25);
     }
 
     .chip-row {
         display: flex;
         flex-wrap: wrap;
-        gap: 0.45rem;
-        margin-bottom: 0.7rem;
+        gap: 0.42rem;
+        margin-bottom: 0.68rem;
     }
 
     .chip {
-        border: 1px solid var(--border);
+        border: 1px solid var(--line);
         border-radius: 999px;
-        padding: 0.28rem 0.68rem;
-        font-size: 0.78rem;
-        color: #dfdfdf;
-        background: #1b1b1b;
+        padding: 0.27rem 0.66rem;
+        font-size: 0.77rem;
+        color: #dedede;
+        background: var(--bg-pill);
     }
 
     .chip.ok {
-        border-color: rgba(245, 245, 245, 0.35);
-        color: #f0f0f0;
-        background: #222222;
+        border-color: rgba(255, 255, 255, 0.22);
+        color: #f1f1f1;
     }
 
     .chip.warn {
-        border-color: rgba(160, 160, 160, 0.45);
+        border-color: rgba(170, 170, 170, 0.34);
         color: #cfcfcf;
-        background: #202020;
     }
 
     .empty-state {
-        border: 1px dashed var(--border);
+        border: 1px dashed var(--line);
         border-radius: 14px;
-        padding: 1rem 1.05rem;
-        margin-top: 0.3rem;
-        color: var(--text-muted);
-        background: rgba(255, 255, 255, 0.02);
+        padding: 0.95rem 1.05rem;
+        margin-top: 0.25rem;
+        color: var(--txt-muted);
+        background: rgba(255, 255, 255, 0.01);
     }
 
     .meta {
-        margin-top: 0.35rem;
-        color: var(--text-muted);
-        font-size: 0.78rem;
+        margin-top: 0.33rem;
+        color: #9a9a9a;
+        font-size: 0.77rem;
     }
 
     .small-muted {
-        color: var(--text-muted);
+        color: var(--txt-muted);
         font-size: 0.84rem;
     }
 
     .stButton > button {
         border-radius: 12px;
-        border: 1px solid var(--border);
-        background: #1c1c1c;
+        border: 1px solid var(--line);
+        background: #1d1d1d;
         color: #efefef;
+        transition: all 120ms ease-in-out;
     }
 
     .stButton > button:hover {
-        border-color: var(--border-strong);
+        border-color: var(--line-strong);
         background: #232323;
+        transform: translateY(-1px);
     }
 
     .stButton > button:focus,
     .stButton > button:focus-visible {
         box-shadow: none !important;
-        border-color: var(--border-strong);
+        border-color: var(--line-strong);
     }
 
     div[data-baseweb="select"] > div {
         border-radius: 12px;
-        border: 1px solid var(--border);
-        background: #1a1a1a;
+        border: 1px solid var(--line);
+        background: #181818;
     }
 
     [data-testid="stFileUploader"] {
-        border: 1px dashed var(--border);
+        border: 1px dashed var(--line);
         border-radius: 12px;
-        padding: 0.35rem 0.45rem 0.15rem;
-        background: rgba(255, 255, 255, 0.02);
+        padding: 0.35rem 0.44rem 0.15rem;
+        background: rgba(255, 255, 255, 0.012);
+    }
+
+    [data-testid="stChatInput"] {
+        margin-top: 0.34rem;
     }
 
     [data-testid="stChatInput"] > div {
-        border: 1px solid var(--border) !important;
-        border-radius: 14px;
-        background: #171717;
+        border: 1px solid var(--line) !important;
+        border-radius: 18px;
+        background:
+            linear-gradient(180deg, rgba(30, 30, 30, 0.95), rgba(20, 20, 20, 0.95));
+        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
     }
 
     [data-testid="stChatInput"] > div:focus-within {
-        border-color: var(--border-strong) !important;
-        box-shadow: none !important;
+        border-color: var(--line-strong) !important;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 10px 18px rgba(0, 0, 0, 0.35) !important;
     }
 
     [data-testid="stChatInput"] textarea,
@@ -246,21 +271,36 @@ st.markdown(
     }
 
     [data-testid="stChatMessage"] {
-        border: 1px solid var(--border);
+        border: 1px solid var(--line);
         border-radius: 14px;
-        background: #171717;
-        padding: 0.25rem 0.58rem;
-        margin-bottom: 0.7rem;
+        background: #151515;
+        padding: 0.24rem 0.56rem;
+        margin-bottom: 0.65rem;
     }
 
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
         border-color: rgba(255, 255, 255, 0.2);
-        background: #1d1d1d;
+        background: #1c1c1c;
     }
 
     [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
-        border-color: rgba(255, 255, 255, 0.15);
-        background: #161616;
+        border-color: rgba(255, 255, 255, 0.14);
+        background: #141414;
+    }
+
+    @media (max-width: 980px) {
+        [data-testid="stMainBlockContainer"] {
+            padding-top: 1.2rem;
+        }
+
+        .hero h1 {
+            font-size: 1.7rem;
+        }
+
+        .hero-logo {
+            width: 54px;
+            height: 54px;
+        }
     }
     </style>
     """,
