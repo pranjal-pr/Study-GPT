@@ -1,4 +1,5 @@
 import base64
+import html
 import os
 from pathlib import Path
 import time
@@ -42,6 +43,26 @@ def load_logo_data_uri() -> str | None:
         return f"data:image/svg+xml;base64,{encoded}"
     except OSError:
         return None
+
+
+def render_message(role: str, content: str, meta: str | None = None) -> None:
+    role_class = "user" if role == "user" else "assistant"
+    avatar_text = "U" if role == "user" else "AI"
+    safe_content = html.escape(content).replace("\n", "<br>")
+    meta_html = f'<div class="sg-meta">{html.escape(meta)}</div>' if meta else ""
+
+    st.markdown(
+        f"""
+        <div class="sg-msg {role_class}">
+            <div class="sg-avatar">{avatar_text}</div>
+            <div class="sg-body">
+                <div class="sg-text">{safe_content}</div>
+                {meta_html}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 page_icon = str(LOGO_PATH) if LOGO_PATH.exists() else ":robot_face:"
@@ -198,12 +219,6 @@ st.markdown(
         background: rgba(255, 255, 255, 0.01);
     }
 
-    .meta {
-        margin-top: 0.33rem;
-        color: #9a9a9a;
-        font-size: 0.77rem;
-    }
-
     .small-muted {
         color: var(--txt-muted);
         font-size: 0.84rem;
@@ -270,22 +285,58 @@ st.markdown(
         outline: none !important;
     }
 
-    [data-testid="stChatMessage"] {
+    .sg-msg {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 0.7rem;
+        align-items: start;
         border: 1px solid var(--line);
         border-radius: 14px;
+        padding: 0.48rem 0.58rem;
+        margin-bottom: 0.68rem;
         background: #151515;
-        padding: 0.24rem 0.56rem;
-        margin-bottom: 0.65rem;
     }
 
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-user"]) {
+    .sg-msg.user {
         border-color: rgba(255, 255, 255, 0.2);
         background: #1c1c1c;
     }
 
-    [data-testid="stChatMessage"]:has([data-testid="chatAvatarIcon-assistant"]) {
+    .sg-msg.assistant {
         border-color: rgba(255, 255, 255, 0.14);
         background: #141414;
+    }
+
+    .sg-avatar {
+        width: 38px;
+        height: 38px;
+        border-radius: 11px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: #f2f2f2;
+        background: #202020;
+        letter-spacing: 0.2px;
+    }
+
+    .sg-body {
+        min-width: 0;
+    }
+
+    .sg-text {
+        color: var(--txt-main);
+        font-size: 1.03rem;
+        line-height: 1.52;
+        word-break: break-word;
+    }
+
+    .sg-meta {
+        margin-top: 0.36rem;
+        color: #9a9a9a;
+        font-size: 0.77rem;
     }
 
     @media (max-width: 980px) {
@@ -437,10 +488,7 @@ with chat_col:
             )
 
         for message in st.session_state.chat_history:
-            with st.chat_message(message["role"]):
-                st.markdown(message["content"])
-                if message.get("meta"):
-                    st.markdown(f'<div class="meta">{message["meta"]}</div>', unsafe_allow_html=True)
+            render_message(message["role"], message["content"], message.get("meta"))
 
     user_prompt = st.chat_input("Ask ShinzoGPT...")
 
