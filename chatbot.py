@@ -47,14 +47,12 @@ def load_logo_data_uri() -> str | None:
 
 def render_message(role: str, content: str, meta: str | None = None) -> None:
     role_class = "user" if role == "user" else "assistant"
-    avatar_text = "U" if role == "user" else "AI"
     safe_content = html.escape(content).replace("\n", "<br>")
     meta_html = f'<div class="sg-meta">{html.escape(meta)}</div>' if meta else ""
 
     st.markdown(
         f"""
         <div class="sg-msg {role_class}">
-            <div class="sg-avatar">{avatar_text}</div>
             <div class="sg-body">
                 <div class="sg-text">{safe_content}</div>
                 {meta_html}
@@ -286,13 +284,10 @@ st.markdown(
     }
 
     .sg-msg {
-        display: grid;
-        grid-template-columns: 42px minmax(0, 1fr);
-        gap: 0.7rem;
-        align-items: start;
+        display: block;
         border: 1px solid var(--line);
         border-radius: 14px;
-        padding: 0.48rem 0.58rem;
+        padding: 0.62rem 0.82rem;
         margin-bottom: 0.68rem;
         background: #151515;
     }
@@ -307,23 +302,10 @@ st.markdown(
         background: #141414;
     }
 
-    .sg-avatar {
-        width: 38px;
-        height: 38px;
-        border-radius: 11px;
-        border: 1px solid rgba(255, 255, 255, 0.24);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 0.8rem;
-        font-weight: 600;
-        color: #f2f2f2;
-        background: #202020;
-        letter-spacing: 0.2px;
-    }
-
     .sg-body {
         min-width: 0;
+        margin: 0;
+        padding: 0;
     }
 
     .sg-text {
@@ -331,6 +313,9 @@ st.markdown(
         font-size: 1.03rem;
         line-height: 1.52;
         word-break: break-word;
+        margin: 0;
+        padding: 0;
+        text-indent: 0;
     }
 
     .sg-meta {
