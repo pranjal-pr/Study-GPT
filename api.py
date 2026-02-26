@@ -4,14 +4,13 @@ import threading
 import time
 import uuid
 from collections import defaultdict, deque
-from typing import List, Optional
+from typing import Any, List, Optional, cast
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from observability import estimate_cost_usd, estimate_tokens, log_event, metrics_store
 from rag_utility import answer_question_with_agent, process_documents_to_chroma_db
-
 
 MAX_QUERY_CHARS = int(os.getenv("MAX_QUERY_CHARS", "2000"))
 MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "5"))
@@ -26,7 +25,13 @@ OBSERVABILITY_TOKEN = os.getenv("OBSERVABILITY_TOKEN", "")
 PROVIDER_MODELS = {
     "Groq": {"llama-3.3-70b-versatile", "llama-3.1-8b-instant"},
     "Gemini": {"gemini-2.0-flash", "gemini-1.5-flash"},
-    "Moonshot Kimi": {"kimi-k2.5", "moonshot-v1-8k", "moonshot-v1-32k", "moonshotai/kimi-k2.5", "moonshotai/kimi-k2-thinking"},
+    "Moonshot Kimi": {
+        "kimi-k2.5",
+        "moonshot-v1-8k",
+        "moonshot-v1-32k",
+        "moonshotai/kimi-k2.5",
+        "moonshotai/kimi-k2-thinking",
+    },
 }
 
 PROVIDER_ENV_KEYS = {
@@ -194,7 +199,7 @@ def get_llm(provider: str, model: str, api_key: str, is_nvidia_key: bool):
     if provider == "Groq":
         from langchain_groq import ChatGroq
 
-        return ChatGroq(model=model, api_key=api_key)
+        return ChatGroq(model=model, api_key=cast(Any, api_key))
     if provider == "Gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
 
@@ -203,7 +208,7 @@ def get_llm(provider: str, model: str, api_key: str, is_nvidia_key: bool):
         from langchain_openai import ChatOpenAI
 
         base_url = "https://integrate.api.nvidia.com/v1" if is_nvidia_key else "https://api.moonshot.cn/v1"
-        return ChatOpenAI(model=model, api_key=api_key, base_url=base_url)
+        return ChatOpenAI(model=model, api_key=cast(Any, api_key), base_url=base_url)
     raise ValueError("Invalid LLM Provider")
 
 
@@ -253,6 +258,8 @@ def _resolve_api_key(provider: str, request_api_key: Optional[str]) -> str:
     if request_api_key:
         return request_api_key
     env_key_name = PROVIDER_ENV_KEYS.get(provider)
+    if not env_key_name:
+        return ""
     env_value = os.getenv(env_key_name, "")
     return env_value
 
@@ -391,17 +398,20 @@ async def chat(request: Request, payload: ChatRequest):
             use_rag = False
         elif payload.routing_mode == "rag_only":
             if not payload.vector_db_path:
-                raise HTTPException(status_code=400, detail="RAG-only mode selected, but no knowledge base is attached.")
+                raise HTTPException(
+                    status_code=400, detail="RAG-only mode selected, but no knowledge base is attached."
+                )
             use_rag = True
         else:
             use_rag = bool(payload.vector_db_path and should_use_rag(payload.query))
 
         if use_rag:
+            vector_db_path = payload.vector_db_path or ""
             response = invoke_with_retries(
                 lambda: answer_question_with_agent(
                     payload.query,
                     llm,
-                    payload.vector_db_path,
+                    vector_db_path,
                     chat_history_context=history_context,
                 )
             )

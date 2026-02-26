@@ -1,10 +1,11 @@
 import os
 import time
 from functools import lru_cache
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_huggingface import HuggingFaceEmbeddings
+
 from langchain_chroma import Chroma
+from langchain_community.document_loaders import PyPDFLoader
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 working_dir = os.path.dirname(os.path.abspath(__file__))
 TOP_K = 3
@@ -69,14 +70,14 @@ def process_documents_to_chroma_db(uploaded_files):
     text_splitter = RecursiveCharacterTextSplitter(chunk_size=2000, chunk_overlap=200)
     texts = text_splitter.split_documents(all_documents)
 
-    # Create the vector DB in the NEW unique folder
-    vectordb = Chroma.from_documents(
+    # Create the vector DB in the NEW unique folder.
+    Chroma.from_documents(
         documents=texts,
         embedding=get_embedding_model(),
-        persist_directory=new_db_folder
+        persist_directory=new_db_folder,
     )
 
-    # Return the path so app.py knows where to look
+    # Return the path so app.py knows where to look.
     return new_db_folder
 
 
@@ -98,15 +99,14 @@ def answer_question_with_agent(
     history_block = ""
     if chat_history_context:
         history_block = (
-            "Conversation history (for continuity only; do not use as factual source):\n"
-            f"{chat_history_context}\n\n"
+            "Conversation history (for continuity only; do not use as factual source):\n" f"{chat_history_context}\n\n"
         )
 
     prompt = (
         "You are a document QA assistant. Answer the user's question using only the CONTEXT below.\n"
         "Use history only to resolve references to prior turns.\n"
         "If the answer is not clearly present in the context, reply exactly with:\n"
-        "\"I couldn't find relevant information for that in your uploaded documents.\"\n\n"
+        '"I couldn\'t find relevant information for that in your uploaded documents."\n\n'
         f"{history_block}"
         f"Question: {user_question}\n\n"
         f"CONTEXT:\n{combined_context}\n\n"

@@ -3,7 +3,7 @@ import json
 import os
 import re
 from statistics import mean
-from typing import Any, Dict, List
+from typing import Any, Dict, List, cast
 
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
@@ -30,12 +30,12 @@ def load_benchmark(path: str) -> List[Dict[str, Any]]:
 
 def make_llm(provider: str, model: str, api_key: str, is_nvidia_key: bool):
     if provider == "Groq":
-        return ChatGroq(model=model, api_key=api_key)
+        return ChatGroq(model=model, api_key=cast(Any, api_key))
     if provider == "Gemini":
         return ChatGoogleGenerativeAI(model=model, google_api_key=api_key)
     if provider == "Moonshot Kimi":
         base_url = "https://integrate.api.nvidia.com/v1" if is_nvidia_key else "https://api.moonshot.cn/v1"
-        return ChatOpenAI(model=model, api_key=api_key, base_url=base_url)
+        return ChatOpenAI(model=model, api_key=cast(Any, api_key), base_url=base_url)
     raise ValueError(f"Unsupported provider: {provider}")
 
 

@@ -5,7 +5,6 @@ from fastapi.testclient import TestClient
 
 import api
 
-
 client = TestClient(api.app)
 
 
@@ -75,10 +74,7 @@ def test_upload_rejects_non_pdf(monkeypatch):
 
 def test_upload_rejects_too_many_files(monkeypatch):
     monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
-    files = [
-        ("files", (f"doc{i}.pdf", b"%PDF-1.4\n", "application/pdf"))
-        for i in range(api.MAX_UPLOAD_FILES + 1)
-    ]
+    files = [("files", (f"doc{i}.pdf", b"%PDF-1.4\n", "application/pdf")) for i in range(api.MAX_UPLOAD_FILES + 1)]
     response = client.post("/upload", files=files)
     assert response.status_code == 400
     assert "upload limit exceeded" in response.json()["detail"].lower()

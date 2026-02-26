@@ -4,7 +4,7 @@ import os
 import time
 from pathlib import Path
 from statistics import mean
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List
 
 from fastapi.testclient import TestClient
 
@@ -17,7 +17,6 @@ from evaluation.evaluate_rag import (
     make_llm,
 )
 from rag_utility import answer_question_with_agent, get_context_and_sources
-
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / ".env"
@@ -75,7 +74,12 @@ def build_model_matrix(env_values: Dict[str, str]) -> List[Dict[str, Any]]:
     else:
         matrix.extend(
             [
-                {"provider": "Moonshot Kimi", "model": "kimi-k2.5", "env_key": "MOONSHOT_API_KEY", "is_nvidia_key": False},
+                {
+                    "provider": "Moonshot Kimi",
+                    "model": "kimi-k2.5",
+                    "env_key": "MOONSHOT_API_KEY",
+                    "is_nvidia_key": False,
+                },
                 {
                     "provider": "Moonshot Kimi",
                     "model": "moonshot-v1-8k",

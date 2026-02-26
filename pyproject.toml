@@ -1,0 +1,33 @@
+[tool.black]
+line-length = 120
+target-version = ["py311"]
+exclude = '''
+(
+  /(
+      \.git
+    | \.pytest_cache
+    | \.ruff_cache
+    | __pycache__
+    | venv
+    | vector_db_.*
+  )/
+)
+'''
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+exclude = [".git", ".pytest_cache", ".ruff_cache", "__pycache__", "venv", "vector_db_*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E501"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+disable_error_code = ["import-untyped"]
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_unused_configs = true
+exclude = "(^venv/|^vector_db_)"

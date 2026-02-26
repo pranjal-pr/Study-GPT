@@ -8,7 +8,9 @@ app_port: 7860
 
 [![Tests](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/ci-tests.yml/badge.svg)](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/ci-tests.yml)
 [![Deploy To Hugging Face Space](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/deploy-to-hf-space.yml/badge.svg)](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/deploy-to-hf-space.yml)
+[![Secret Scan](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/secret-scan.yml)
 [![Hugging Face Space](https://img.shields.io/badge/Hugging%20Face-Live%20App-yellow?logo=huggingface)](https://huggingface.co/spaces/shinzobolte/ShinzoGPT)
+[![Version](https://img.shields.io/badge/version-v1.0.0-black)](https://github.com/shinzoxD/streamlit-genai-chatbot/releases/tag/v1.0.0)
 
 ShinzoGPT is a document-aware AI chat app with:
 - Streamlit frontend (`chatbot.py`)
@@ -20,6 +22,25 @@ ShinzoGPT is a document-aware AI chat app with:
 Live links:
 - App: https://huggingface.co/spaces/shinzobolte/ShinzoGPT
 - GitHub Actions: https://github.com/shinzoxD/streamlit-genai-chatbot/actions
+
+## 60-Second Demo
+
+1. Open the live Space and ask a general question (chat-only quality).
+2. Upload a PDF and click **Process PDFs**.
+3. Ask a document-grounded question and verify the cited source.
+4. Toggle routing mode (`auto`, `chat_only`, `rag_only`) to show behavior.
+5. Show runtime metrics panel (latency, errors, estimated cost).
+
+Live demo app: https://huggingface.co/spaces/shinzobolte/ShinzoGPT
+Recording script: [DEMO_SCRIPT.md](./DEMO_SCRIPT.md)
+
+## Resume-Ready Bullets
+
+- Built and deployed an end-to-end RAG chatbot (Streamlit + FastAPI + Chroma) on Hugging Face Spaces with GitHub Actions CD.
+- Implemented multi-provider model routing and conversational memory with document-grounded retrieval and source-aware responses.
+- Added observability, reliability, and security controls: structured logs, runtime metrics, retries/timeouts, rate limiting, and automated secret scanning.
+- Benchmarked all configured models with reproducible evaluation tooling; achieved retrieval hit@3/MRR@3 of `1.00` on benchmark set.
+- Productionized project quality gates with CI checks (`ruff`, `black --check`, `mypy`, `pytest`) and release versioning (`v1.0.0`).
 
 ## Architecture Diagram
 

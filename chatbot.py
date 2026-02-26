@@ -1,14 +1,14 @@
 import base64
 import html
 import os
-from pathlib import Path
 import re
 import time
+from pathlib import Path
 
-from dotenv import load_dotenv
 import requests
-from requests.adapters import HTTPAdapter
 import streamlit as st
+from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
 load_dotenv()

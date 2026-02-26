@@ -6,7 +6,6 @@ import time
 from collections import defaultdict, deque
 from typing import Any, Dict, List
 
-
 LOGGER_NAME = "shinzogpt"
 DEFAULT_INPUT_COST_PER_1K = float(os.getenv("DEFAULT_INPUT_COST_PER_1K_TOKENS", "0.00059"))
 DEFAULT_OUTPUT_COST_PER_1K = float(os.getenv("DEFAULT_OUTPUT_COST_PER_1K_TOKENS", "0.00079"))
@@ -90,7 +89,7 @@ class MetricsStore:
         self._estimated_input_tokens_total = 0
         self._estimated_output_tokens_total = 0
         self._estimated_cost_usd_total = 0.0
-        self._events = deque(maxlen=max_events)
+        self._events: deque[Dict[str, Any]] = deque(maxlen=max_events)
 
     def record_request(self, endpoint: str, method: str, status_code: int, latency_ms: float) -> None:
         key = f"{method.upper()} {endpoint}"
