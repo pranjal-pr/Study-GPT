@@ -43,6 +43,10 @@ flowchart TD
     C --> K[Rate Limiting + Validation + Retry]
 ```
 
+Static architecture image (for platforms without Mermaid support):
+
+![ShinzoGPT Architecture](./assets/architecture-diagram.svg)
+
 ## Quantitative Results (Measured)
 
 Measured on `2026-02-26` using:
