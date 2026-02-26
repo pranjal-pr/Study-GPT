@@ -8,9 +8,15 @@ from typing import Any, Dict, List
 
 
 LOGGER_NAME = "shinzogpt"
-DEFAULT_INPUT_COST_PER_1K = float(os.getenv("DEFAULT_INPUT_COST_PER_1K_TOKENS", "0"))
-DEFAULT_OUTPUT_COST_PER_1K = float(os.getenv("DEFAULT_OUTPUT_COST_PER_1K_TOKENS", "0"))
-_MODEL_PRICING_OVERRIDES_ENV = os.getenv("MODEL_PRICING_OVERRIDES_JSON", "{}")
+DEFAULT_INPUT_COST_PER_1K = float(os.getenv("DEFAULT_INPUT_COST_PER_1K_TOKENS", "0.00059"))
+DEFAULT_OUTPUT_COST_PER_1K = float(os.getenv("DEFAULT_OUTPUT_COST_PER_1K_TOKENS", "0.00079"))
+_MODEL_PRICING_OVERRIDES_ENV = os.getenv(
+    "MODEL_PRICING_OVERRIDES_JSON",
+    (
+        '{"llama-3.3-70b-versatile":{"input_per_1k":0.00059,"output_per_1k":0.00079},'
+        '"llama-3.1-8b-instant":{"input_per_1k":0.00005,"output_per_1k":0.00008}}'
+    ),
+)
 
 
 def _parse_model_pricing_overrides() -> Dict[str, Dict[str, float]]:
