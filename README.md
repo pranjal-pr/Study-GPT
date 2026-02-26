@@ -10,7 +10,7 @@ app_port: 7860
 [![Deploy To Hugging Face Space](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/deploy-to-hf-space.yml/badge.svg)](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/deploy-to-hf-space.yml)
 [![Secret Scan](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/secret-scan.yml)
 [![Hugging Face Space](https://img.shields.io/badge/Hugging%20Face-Live%20App-yellow?logo=huggingface)](https://huggingface.co/spaces/shinzobolte/ShinzoGPT)
-[![Version](https://img.shields.io/badge/version-v1.0.0-black)](https://github.com/shinzoxD/streamlit-genai-chatbot/releases/tag/v1.0.0)
+[![Version](https://img.shields.io/badge/version-v1.0.0-black)](https://github.com/shinzoxD/streamlit-genai-chatbot/tree/v1.0.0)
 
 ShinzoGPT is a document-aware AI chat app with:
 - Streamlit frontend (`chatbot.py`)
