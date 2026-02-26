@@ -19,6 +19,7 @@ LOGO_PATH = BASE_DIR / "assets" / "shinzogpt-logo.svg"
 MAX_PROMPT_CHARS = int(os.getenv("MAX_QUERY_CHARS", "2000"))
 MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "5"))
 MAX_UPLOAD_FILE_MB = int(os.getenv("MAX_UPLOAD_FILE_MB", "20"))
+MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "12"))
 HTTP_CONNECT_TIMEOUT_SEC = float(os.getenv("HTTP_CONNECT_TIMEOUT_SEC", "6"))
 HTTP_READ_TIMEOUT_CHAT_SEC = float(os.getenv("HTTP_READ_TIMEOUT_CHAT_SEC", "180"))
 HTTP_READ_TIMEOUT_UPLOAD_SEC = float(os.getenv("HTTP_READ_TIMEOUT_UPLOAD_SEC", "360"))
@@ -109,6 +110,19 @@ def fetch_runtime_summary():
     except Exception:
         return None
     return None
+
+
+def build_history_payload(chat_history: list[dict]) -> list[dict]:
+    history_payload = []
+    for message in chat_history[-MAX_HISTORY_TURNS:]:
+        role = (message.get("role") or "").strip().lower()
+        if role not in {"user", "assistant"}:
+            continue
+        content = normalize_message_content(role, message.get("content", "")).strip()
+        if not content:
+            continue
+        history_payload.append({"role": role, "content": content[:MAX_PROMPT_CHARS]})
+    return history_payload
 
 
 def render_message(role: str, content: str, meta: str | None = None, is_latest: bool = False) -> None:
@@ -794,6 +808,7 @@ if user_prompt:
     try:
         with st.spinner("Thinking..."):
             start = time.perf_counter()
+            history_payload = build_history_payload(st.session_state.chat_history[:-1])
             payload = {
                 "query": cleaned_prompt,
                 "provider": provider,
@@ -802,6 +817,7 @@ if user_prompt:
                 "vector_db_path": st.session_state.vector_db_path,
                 "is_nvidia_key": is_nvidia_key,
                 "routing_mode": routing_mode,
+                "chat_history": history_payload,
             }
             response = HTTP_SESSION.post(
                 f"{API_URL}/chat",

@@ -149,3 +149,72 @@ def test_chat_only_forces_non_rag(monkeypatch):
         assert called["rag"] is False
     finally:
         shutil.rmtree(test_vector_dir, ignore_errors=True)
+
+
+def test_chat_uses_history_context(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+    captured = {"prompt": ""}
+
+    class DummyResponse:
+        content = "continuity ok"
+
+    class DummyLLM:
+        def invoke(self, prompt):
+            captured["prompt"] = prompt
+            return DummyResponse()
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+
+    payload = {
+        "query": "The last topic",
+        "provider": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "api_key": "dummy",
+        "routing_mode": "chat_only",
+        "chat_history": [
+            {"role": "user", "content": "Explain deep learning"},
+            {"role": "assistant", "content": "Deep learning uses neural networks."},
+        ],
+    }
+    response = client.post("/chat", json=payload)
+    assert response.status_code == 200
+    assert "Conversation history" in captured["prompt"]
+    assert "Explain deep learning" in captured["prompt"]
+
+
+def test_rag_receives_history_context(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+    captured = {"history": ""}
+
+    class DummyLLM:
+        pass
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+
+    def fake_rag(_query, _llm, _vector_db_path, chat_history_context=""):
+        captured["history"] = chat_history_context
+        return "rag continuity ok"
+
+    monkeypatch.setattr(api, "answer_question_with_agent", fake_rag)
+
+    working_dir = Path(api.__file__).resolve().parent
+    test_vector_dir = working_dir / "tests_tmp_vector_db_memory"
+    test_vector_dir.mkdir(exist_ok=True)
+    try:
+        payload = {
+            "query": "What about that topic?",
+            "provider": "Groq",
+            "model": "llama-3.3-70b-versatile",
+            "api_key": "dummy",
+            "routing_mode": "rag_only",
+            "vector_db_path": str(test_vector_dir),
+            "chat_history": [
+                {"role": "user", "content": "Tell me about Transformers."},
+                {"role": "assistant", "content": "Transformers use self-attention."},
+            ],
+        }
+        response = client.post("/chat", json=payload)
+        assert response.status_code == 200
+        assert "Tell me about Transformers." in captured["history"]
+    finally:
+        shutil.rmtree(test_vector_dir, ignore_errors=True)

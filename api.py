@@ -7,7 +7,7 @@ from collections import defaultdict, deque
 from typing import List, Optional
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from observability import estimate_cost_usd, estimate_tokens, log_event, metrics_store
 from rag_utility import answer_question_with_agent, process_documents_to_chroma_db
@@ -17,6 +17,7 @@ MAX_QUERY_CHARS = int(os.getenv("MAX_QUERY_CHARS", "2000"))
 MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "5"))
 MAX_UPLOAD_FILE_MB = int(os.getenv("MAX_UPLOAD_FILE_MB", "20"))
 MAX_UPLOAD_FILE_BYTES = MAX_UPLOAD_FILE_MB * 1024 * 1024
+MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "12"))
 LLM_RETRY_ATTEMPTS = int(os.getenv("LLM_RETRY_ATTEMPTS", "2"))
 LLM_RETRY_BASE_DELAY_SEC = float(os.getenv("LLM_RETRY_BASE_DELAY_SEC", "0.5"))
 OBSERVABILITY_TOKEN = os.getenv("OBSERVABILITY_TOKEN", "")
@@ -72,6 +73,11 @@ app = FastAPI(
 )
 
 
+class ChatTurn(BaseModel):
+    role: str
+    content: str
+
+
 class ChatRequest(BaseModel):
     query: str
     provider: str
@@ -80,6 +86,29 @@ class ChatRequest(BaseModel):
     vector_db_path: Optional[str] = None
     is_nvidia_key: bool = False
     routing_mode: str = "auto"
+    chat_history: List[ChatTurn] = Field(default_factory=list)
+
+
+def _build_history_context(chat_history: List["ChatTurn"]) -> str:
+    if not chat_history:
+        return ""
+
+    lines = []
+    for turn in chat_history[-MAX_HISTORY_TURNS:]:
+        role = turn.role.lower().strip()
+        if role not in {"user", "assistant"}:
+            continue
+
+        content = (turn.content or "").strip()
+        if not content:
+            continue
+
+        # Keep context bounded and clean.
+        content = re.sub(r"\s+", " ", content)[:600]
+        label = "User" if role == "user" else "Assistant"
+        lines.append(f"{label}: {content}")
+
+    return "\n".join(lines)
 
 
 def _normalize_query_for_routing(query: str) -> str:
@@ -241,6 +270,13 @@ def _validate_chat_payload(request: ChatRequest) -> None:
         raise HTTPException(status_code=400, detail="Unsupported model for selected provider.")
     if request.routing_mode not in {"auto", "chat_only", "rag_only"}:
         raise HTTPException(status_code=400, detail="Invalid routing_mode. Use auto, chat_only, or rag_only.")
+    if len(request.chat_history) > MAX_HISTORY_TURNS:
+        raise HTTPException(status_code=400, detail=f"chat_history exceeds max turns ({MAX_HISTORY_TURNS}).")
+    for turn in request.chat_history:
+        if turn.role.lower() not in {"user", "assistant"}:
+            raise HTTPException(status_code=400, detail="chat_history role must be user or assistant.")
+        if len((turn.content or "").strip()) > MAX_QUERY_CHARS:
+            raise HTTPException(status_code=400, detail="A chat_history message exceeds max allowed length.")
 
     if request.vector_db_path:
         abs_path = os.path.abspath(request.vector_db_path)
@@ -349,6 +385,7 @@ async def chat(request: Request, payload: ChatRequest):
 
     try:
         llm = get_llm(payload.provider, payload.model, api_key, payload.is_nvidia_key)
+        history_context = _build_history_context(payload.chat_history)
 
         if payload.routing_mode == "chat_only":
             use_rag = False
@@ -360,14 +397,31 @@ async def chat(request: Request, payload: ChatRequest):
             use_rag = bool(payload.vector_db_path and should_use_rag(payload.query))
 
         if use_rag:
-            response = invoke_with_retries(lambda: answer_question_with_agent(payload.query, llm, payload.vector_db_path))
+            response = invoke_with_retries(
+                lambda: answer_question_with_agent(
+                    payload.query,
+                    llm,
+                    payload.vector_db_path,
+                    chat_history_context=history_context,
+                )
+            )
             if response is None:
                 response = "I couldn't find relevant information for that in your uploaded documents."
         else:
-            response = invoke_with_retries(lambda: llm.invoke(payload.query).content)
+            if history_context:
+                prompt = (
+                    "You are a helpful conversational assistant.\n"
+                    "Use the conversation history for continuity (references like 'that', 'previous', 'last topic').\n"
+                    "If the history is irrelevant, prioritize the latest user question.\n\n"
+                    f"Conversation history:\n{history_context}\n\n"
+                    f"Current user question:\n{payload.query}"
+                )
+            else:
+                prompt = payload.query
+            response = invoke_with_retries(lambda: llm.invoke(prompt).content)
 
         latency_ms = (time.perf_counter() - started) * 1000
-        input_tokens = estimate_tokens(payload.query)
+        input_tokens = estimate_tokens(payload.query) + estimate_tokens(history_context)
         output_tokens = estimate_tokens(response)
         estimated_cost = estimate_cost_usd(payload.model, input_tokens, output_tokens)
 

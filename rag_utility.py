@@ -80,7 +80,12 @@ def process_documents_to_chroma_db(uploaded_files):
     return new_db_folder
 
 
-def answer_question_with_agent(user_question: str, llm_instance, vector_db_path: str):
+def answer_question_with_agent(
+    user_question: str,
+    llm_instance,
+    vector_db_path: str,
+    chat_history_context: str = "",
+):
     """
     Retrieves context and answers strictly from uploaded documents.
     """
@@ -90,10 +95,19 @@ def answer_question_with_agent(user_question: str, llm_instance, vector_db_path:
 
     source_list = ", ".join(sources)
 
+    history_block = ""
+    if chat_history_context:
+        history_block = (
+            "Conversation history (for continuity only; do not use as factual source):\n"
+            f"{chat_history_context}\n\n"
+        )
+
     prompt = (
         "You are a document QA assistant. Answer the user's question using only the CONTEXT below.\n"
+        "Use history only to resolve references to prior turns.\n"
         "If the answer is not clearly present in the context, reply exactly with:\n"
         "\"I couldn't find relevant information for that in your uploaded documents.\"\n\n"
+        f"{history_block}"
         f"Question: {user_question}\n\n"
         f"CONTEXT:\n{combined_context}\n\n"
         f"Always end with: Sources: {source_list}"
