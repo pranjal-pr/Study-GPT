@@ -63,6 +63,8 @@ Measured at `2026-02-26T22:26:10Z` using:
 | Moonshot Kimi | moonshotai/kimi-k2.5 | ok | 1.00 | 1.00 | 0.96 | 132852.83 | 0.00% |
 | Moonshot Kimi | moonshotai/kimi-k2-thinking | ok | 1.00 | 1.00 | 0.97 | 17672.65 | 0.00% |
 
+Recommended default for demo/recruiter walkthrough: **Groq `llama-3.3-70b-versatile`** (best quality-speed balance in this run).
+
 Gemini failure reasons during this run:
 - `gemini-2.0-flash`: `429 RESOURCE_EXHAUSTED` (quota exceeded / billing plan limits).
 - `gemini-1.5-flash`: `404 NOT_FOUND` for the configured API version/model access.
@@ -187,22 +189,3 @@ Required GitHub repository secrets:
 - Simple observability and rate limiting keep deployment lightweight but are less robust than distributed stacks.
 - Cost telemetry is estimate-based unless provider-side token usage metadata is available.
 - Current benchmark is small and domain-focused; broader generalization needs a larger test set.
-
-## Challenges / Tradeoffs / Results (Template)
-
-### Challenges
-- Balancing rich custom UI with Streamlit rerun behavior.
-- Keeping RAG robust while avoiding brittle answer hallucinations.
-- Making observability useful without paid monitoring tools.
-
-### Tradeoffs
-- In-memory rate limiting is simple but not distributed.
-- Faithfulness scoring is heuristic; stronger eval can use LLM judges/human review.
-- Cost tracking is estimate-based unless provider token usage metadata is available.
-
-### Results (Fill with your measurements)
-- Retrieval hit rate@3: `__`
-- MRR@3: `__`
-- Faithfulness avg: `__`
-- p95 chat latency: `__ ms`
-- Error rate: `__ %`
