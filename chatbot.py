@@ -845,9 +845,15 @@ if user_prompt:
                 st.session_state.chat_history.append(
                     {"role": "assistant", "content": f"Backend error: {parse_backend_error(response)}"}
                 )
+
+            # Keep sidebar runtime metrics in sync after every chat request.
+            st.session_state.runtime_summary = fetch_runtime_summary()
+            st.session_state.runtime_summary_ts = time.time()
     except Exception as e:
         st.session_state.chat_history.append(
             {"role": "assistant", "content": f"Connection error: {e}. Is FastAPI running?"}
         )
+        st.session_state.runtime_summary = fetch_runtime_summary()
+        st.session_state.runtime_summary_ts = time.time()
 
     st.rerun()
