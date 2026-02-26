@@ -1,0 +1,229 @@
+{
+  "measured_at_utc": "2026-02-26T22:26:10Z",
+  "benchmark_file": "evaluation\\benchmark.jsonl",
+  "vector_db_path": "vector_db_1771979965",
+  "runtime_prompt_count_per_model": 5,
+  "results": [
+    {
+      "provider": "Groq",
+      "model": "llama-3.3-70b-versatile",
+      "env_key": "GROQ_API_KEY",
+      "is_nvidia_key": false,
+      "status": "ok",
+      "error": "",
+      "evaluation": {
+        "samples": 5,
+        "retrieval_hit_rate": 1.0,
+        "retrieval_mrr": 1.0,
+        "retrieval_precision_at_k": 1.0,
+        "faithfulness_avg": 1.0,
+        "keyword_recall_avg": 0.7
+      },
+      "runtime": {
+        "samples": 5,
+        "successes": 5,
+        "failures": 0,
+        "error_rate": 0.0,
+        "avg_latency_ms": 1011.18,
+        "p95_latency_ms": 1415.75,
+        "records": [
+          {
+            "status": 200,
+            "latency_ms": 927.93,
+            "wall_ms": 1251.72
+          },
+          {
+            "status": 200,
+            "latency_ms": 891.4,
+            "wall_ms": 901.55
+          },
+          {
+            "status": 200,
+            "latency_ms": 1415.75,
+            "wall_ms": 1422.15
+          },
+          {
+            "status": 200,
+            "latency_ms": 818.79,
+            "wall_ms": 825.47
+          },
+          {
+            "status": 200,
+            "latency_ms": 1002.02,
+            "wall_ms": 1007.4
+          }
+        ]
+      }
+    },
+    {
+      "provider": "Groq",
+      "model": "llama-3.1-8b-instant",
+      "env_key": "GROQ_API_KEY",
+      "is_nvidia_key": false,
+      "status": "ok",
+      "error": "",
+      "evaluation": {
+        "samples": 5,
+        "retrieval_hit_rate": 1.0,
+        "retrieval_mrr": 1.0,
+        "retrieval_precision_at_k": 1.0,
+        "faithfulness_avg": 0.8,
+        "keyword_recall_avg": 0.5
+      },
+      "runtime": {
+        "samples": 5,
+        "successes": 5,
+        "failures": 0,
+        "error_rate": 0.0,
+        "avg_latency_ms": 727.98,
+        "p95_latency_ms": 757.6,
+        "records": [
+          {
+            "status": 200,
+            "latency_ms": 757.6,
+            "wall_ms": 762.59
+          },
+          {
+            "status": 200,
+            "latency_ms": 737.75,
+            "wall_ms": 743.17
+          },
+          {
+            "status": 200,
+            "latency_ms": 743.13,
+            "wall_ms": 747.53
+          },
+          {
+            "status": 200,
+            "latency_ms": 698.75,
+            "wall_ms": 703.56
+          },
+          {
+            "status": 200,
+            "latency_ms": 702.65,
+            "wall_ms": 713.69
+          }
+        ]
+      }
+    },
+    {
+      "provider": "Gemini",
+      "model": "gemini-2.0-flash",
+      "env_key": "GOOGLE_API_KEY",
+      "is_nvidia_key": false,
+      "status": "failed",
+      "error": "ChatGoogleGenerativeAIError: Error calling model 'gemini-2.0-flash' (RESOURCE_EXHAUSTED): 429 RESOURCE_EXHAUSTED. {'error': {'code': 429, 'message': 'You exceeded your current quota, please check your plan and billing details. For more information on this error, head to: https://ai.google.dev/gemini-api/docs/rate-limits. To monitor your current usage, head to: https://ai.dev/rate-limit. \\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 0, model: gemini-2.0-flash\\n* Quota exceeded for metric: generativelanguage.googleapis.com/generate_content_free_tier_input_token_count, limit: 0, model: gemini-2.0-flash\\nPlease retry in 27.416539067s.', 'status': 'RESOURCE_EXHAUSTED', 'details': [{'@type': 'type.googleapis.com/google.rpc.Help', 'links': [{'description': 'Learn more about Gemini API quotas', 'url': 'https://ai.google.dev/gemini-api/docs/rate-limits'}]}, {'@type': 'type.googleapis.com/google.rpc.QuotaFailure', 'violations': [{'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerDayPerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.0-flash'}}, {'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_requests', 'quotaId': 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.0-flash'}}, {'quotaMetric': 'generativelanguage.googleapis.com/generate_content_free_tier_input_token_count', 'quotaId': 'GenerateContentInputTokensPerModelPerMinute-FreeTier', 'quotaDimensions': {'location': 'global', 'model': 'gemini-2.0-flash'}}]}, {'@type': 'type.googleapis.com/google.rpc.RetryInfo', 'retryDelay': '27s'}]}}"
+    },
+    {
+      "provider": "Gemini",
+      "model": "gemini-1.5-flash",
+      "env_key": "GOOGLE_API_KEY",
+      "is_nvidia_key": false,
+      "status": "failed",
+      "error": "ChatGoogleGenerativeAIError: Error calling model 'gemini-1.5-flash' (NOT_FOUND): 404 NOT_FOUND. {'error': {'code': 404, 'message': 'models/gemini-1.5-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.', 'status': 'NOT_FOUND'}}"
+    },
+    {
+      "provider": "Moonshot Kimi",
+      "model": "moonshotai/kimi-k2.5",
+      "env_key": "MOONSHOT_API_KEY",
+      "is_nvidia_key": true,
+      "status": "ok",
+      "error": "",
+      "evaluation": {
+        "samples": 5,
+        "retrieval_hit_rate": 1.0,
+        "retrieval_mrr": 1.0,
+        "retrieval_precision_at_k": 1.0,
+        "faithfulness_avg": 0.96,
+        "keyword_recall_avg": 0.9
+      },
+      "runtime": {
+        "samples": 5,
+        "successes": 5,
+        "failures": 0,
+        "error_rate": 0.0,
+        "avg_latency_ms": 73327.94,
+        "p95_latency_ms": 132852.83,
+        "records": [
+          {
+            "status": 200,
+            "latency_ms": 91595.71,
+            "wall_ms": 92144.84
+          },
+          {
+            "status": 200,
+            "latency_ms": 49765.89,
+            "wall_ms": 49774.11
+          },
+          {
+            "status": 200,
+            "latency_ms": 79005.25,
+            "wall_ms": 79014.46
+          },
+          {
+            "status": 200,
+            "latency_ms": 132852.83,
+            "wall_ms": 132861.53
+          },
+          {
+            "status": 200,
+            "latency_ms": 13420.03,
+            "wall_ms": 13426.63
+          }
+        ]
+      }
+    },
+    {
+      "provider": "Moonshot Kimi",
+      "model": "moonshotai/kimi-k2-thinking",
+      "env_key": "MOONSHOT_API_KEY",
+      "is_nvidia_key": true,
+      "status": "ok",
+      "error": "",
+      "evaluation": {
+        "samples": 5,
+        "retrieval_hit_rate": 1.0,
+        "retrieval_mrr": 1.0,
+        "retrieval_precision_at_k": 1.0,
+        "faithfulness_avg": 0.9714,
+        "keyword_recall_avg": 0.9
+      },
+      "runtime": {
+        "samples": 5,
+        "successes": 5,
+        "failures": 0,
+        "error_rate": 0.0,
+        "avg_latency_ms": 9778.74,
+        "p95_latency_ms": 17672.65,
+        "records": [
+          {
+            "status": 200,
+            "latency_ms": 6068.49,
+            "wall_ms": 6077.16
+          },
+          {
+            "status": 200,
+            "latency_ms": 9350.21,
+            "wall_ms": 9356.24
+          },
+          {
+            "status": 200,
+            "latency_ms": 17672.65,
+            "wall_ms": 17678.11
+          },
+          {
+            "status": 200,
+            "latency_ms": 8499.84,
+            "wall_ms": 8505.83
+          },
+          {
+            "status": 200,
+            "latency_ms": 7302.51,
+            "wall_ms": 7308.1
+          }
+        ]
+      }
+    }
+  ],
+  "markdown_table": "| Provider | Model | Status | Hit@3 | MRR@3 | Faithfulness | p95 Latency (ms) | Error Rate |\n|---|---|---|---:|---:|---:|---:|---:|\n| Groq | llama-3.3-70b-versatile | ok | 1.00 | 1.00 | 1.00 | 1415.75 | 0.00% |\n| Groq | llama-3.1-8b-instant | ok | 1.00 | 1.00 | 0.80 | 757.60 | 0.00% |\n| Gemini | gemini-2.0-flash | failed | - | - | - | - | - |\n| Gemini | gemini-1.5-flash | failed | - | - | - | - | - |\n| Moonshot Kimi | moonshotai/kimi-k2.5 | ok | 1.00 | 1.00 | 0.96 | 132852.83 | 0.00% |\n| Moonshot Kimi | moonshotai/kimi-k2-thinking | ok | 1.00 | 1.00 | 0.97 | 17672.65 | 0.00% |"
+}

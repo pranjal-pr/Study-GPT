@@ -49,22 +49,29 @@ Static architecture image (for platforms without Mermaid support):
 
 ## Quantitative Results (Measured)
 
-Measured on `2026-02-26` using:
+Measured at `2026-02-26T22:26:10Z` using:
 - Retrieval benchmark: `evaluation/benchmark.jsonl` on `vector_db_1771979965`
-- Latency run: 10 real `/chat` requests in `chat_only` mode with Groq `llama-3.3-70b-versatile`
+- Runtime benchmark: 5 real `/chat` requests per model in `chat_only` mode
+- Model matrix tested: all models currently exposed by this app configuration
 
-| Metric | Value |
-|---|---:|
-| Retrieval hit rate@3 | **1.00** |
-| Retrieval MRR@3 | **1.00** |
-| Faithfulness avg | **1.00** |
-| p95 chat latency | **2849.02 ms** |
-| Error rate | **0.00%** |
+| Provider | Model | Status | Hit@3 | MRR@3 | Faithfulness | p95 Latency (ms) | Error Rate |
+|---|---|---|---:|---:|---:|---:|---:|
+| Groq | llama-3.3-70b-versatile | ok | 1.00 | 1.00 | 1.00 | 1415.75 | 0.00% |
+| Groq | llama-3.1-8b-instant | ok | 1.00 | 1.00 | 0.80 | 757.60 | 0.00% |
+| Gemini | gemini-2.0-flash | failed | - | - | - | - | - |
+| Gemini | gemini-1.5-flash | failed | - | - | - | - | - |
+| Moonshot Kimi | moonshotai/kimi-k2.5 | ok | 1.00 | 1.00 | 0.96 | 132852.83 | 0.00% |
+| Moonshot Kimi | moonshotai/kimi-k2-thinking | ok | 1.00 | 1.00 | 0.97 | 17672.65 | 0.00% |
+
+Gemini failure reasons during this run:
+- `gemini-2.0-flash`: `429 RESOURCE_EXHAUSTED` (quota exceeded / billing plan limits).
+- `gemini-1.5-flash`: `404 NOT_FOUND` for the configured API version/model access.
 
 Reproducible reports:
-- [Full eval report](./evaluation/report_latest_full.json)
-- [Retrieval-only report](./evaluation/report_latest_retrieval.json)
-- [Runtime benchmark report](./evaluation/runtime_benchmark_latest.json)
+- [Model matrix report](./evaluation/model_matrix_latest.json)
+- [Full eval report (single-model baseline)](./evaluation/report_latest_full.json)
+- [Retrieval-only report (single-model baseline)](./evaluation/report_latest_retrieval.json)
+- [Runtime benchmark report (single-model baseline)](./evaluation/runtime_benchmark_latest.json)
 
 ## Flagship-Readiness Features
 
@@ -87,6 +94,14 @@ python evaluation/evaluate_rag.py ^
 ```
 
 You can also run retrieval-only eval (omit provider/model/api-key).
+
+Run full model-matrix benchmark (all configured UI models):
+
+```bash
+python evaluation/benchmark_model_matrix.py
+```
+
+This writes `evaluation/model_matrix_latest.json` with per-model metrics and failure reasons.
 
 ### 2) Testing + Reliability
 - Unit/integration tests in `tests/`
@@ -153,8 +168,6 @@ On each push to `main`/`master`:
 Required GitHub repository secrets:
 - `HF_TOKEN`: Hugging Face token with write access to the Space repo
 - `HF_SPACE_ID`: `username/space-name`
-
-## Challenges / Tradeoffs / Results (Template)
 
 ## Failures + Tradeoffs
 
