@@ -1,0 +1,66 @@
+{
+  "summary": {
+    "sample_size": 10,
+    "successes": 10,
+    "failures": 0,
+    "error_rate": 0.0,
+    "avg_latency_ms": 1841.8,
+    "p95_latency_ms": 2849.02,
+    "measured_at_utc": "2026-02-26T21:36:37Z",
+    "mode": "chat_only",
+    "provider": "Groq",
+    "model": "llama-3.3-70b-versatile"
+  },
+  "records": [
+    {
+      "status": 200,
+      "latency_ms": 1704.14,
+      "wall_ms": 1776.13
+    },
+    {
+      "status": 200,
+      "latency_ms": 1043.8,
+      "wall_ms": 1052.74
+    },
+    {
+      "status": 200,
+      "latency_ms": 1163.3,
+      "wall_ms": 1169.3
+    },
+    {
+      "status": 200,
+      "latency_ms": 2849.02,
+      "wall_ms": 2857.8
+    },
+    {
+      "status": 200,
+      "latency_ms": 2534.27,
+      "wall_ms": 2543.82
+    },
+    {
+      "status": 200,
+      "latency_ms": 923.98,
+      "wall_ms": 931.12
+    },
+    {
+      "status": 200,
+      "latency_ms": 2119.39,
+      "wall_ms": 2128.93
+    },
+    {
+      "status": 200,
+      "latency_ms": 2434.74,
+      "wall_ms": 2441.16
+    },
+    {
+      "status": 200,
+      "latency_ms": 1663.41,
+      "wall_ms": 1670.29
+    },
+    {
+      "status": 200,
+      "latency_ms": 1981.99,
+      "wall_ms": 1987.25
+    }
+  ]
+}

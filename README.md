@@ -6,6 +6,10 @@ app_port: 7860
 
 # ShinzoGPT
 
+[![Tests](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/ci-tests.yml/badge.svg)](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/ci-tests.yml)
+[![Deploy To Hugging Face Space](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/deploy-to-hf-space.yml/badge.svg)](https://github.com/shinzoxD/streamlit-genai-chatbot/actions/workflows/deploy-to-hf-space.yml)
+[![Hugging Face Space](https://img.shields.io/badge/Hugging%20Face-Live%20App-yellow?logo=huggingface)](https://huggingface.co/spaces/shinzobolte/ShinzoGPT)
+
 ShinzoGPT is a document-aware AI chat app with:
 - Streamlit frontend (`chatbot.py`)
 - FastAPI backend (`api.py`)
@@ -13,34 +17,50 @@ ShinzoGPT is a document-aware AI chat app with:
 - Docker + Hugging Face Spaces deployment
 - GitHub Actions auto-deploy to Hugging Face Space
 
-## Architecture
+Live links:
+- App: https://huggingface.co/spaces/shinzobolte/ShinzoGPT
+- GitHub Actions: https://github.com/shinzoxD/streamlit-genai-chatbot/actions
 
-```text
-Browser (HF Space UI)
-        |
-        v
-  Streamlit App (chatbot.py)
-  - provider/model selection
-  - file uploads
-  - retry + timeout client
-  - runtime metrics panel
-        |
-        | HTTP /upload, /chat, /metrics/*
-        v
-  FastAPI (api.py)
-  - input validation + rate limiting
-  - retry logic for model calls
-  - routing: chat vs RAG
-  - structured logs + telemetry
-        |
-        +--> LLM Providers (Groq/Gemini/Moonshot)
-        |
-        +--> RAG Utility (rag_utility.py)
-             - PDF load/split
-             - embeddings
-             - Chroma similarity search
-             - grounded answer + sources
+## Architecture Diagram
+
+```mermaid
+flowchart TD
+    A[User Browser] --> B[Streamlit UI<br/>chatbot.py]
+    B -->|POST /upload| C[FastAPI Backend<br/>api.py]
+    B -->|POST /chat| C
+    B -->|GET /metrics/*| C
+
+    C --> D[Routing Layer<br/>auto, chat_only, rag_only]
+    D --> E[Direct LLM Path]
+    D --> F[RAG Path]
+
+    E --> G[Providers<br/>Groq / Gemini / Moonshot]
+    F --> H[RAG Utility<br/>rag_utility.py]
+    H --> I[Chroma Vector DB]
+    H --> G
+
+    C --> J[Observability<br/>structured logs + metrics]
+    C --> K[Rate Limiting + Validation + Retry]
 ```
+
+## Quantitative Results (Measured)
+
+Measured on `2026-02-26` using:
+- Retrieval benchmark: `evaluation/benchmark.jsonl` on `vector_db_1771979965`
+- Latency run: 10 real `/chat` requests in `chat_only` mode with Groq `llama-3.3-70b-versatile`
+
+| Metric | Value |
+|---|---:|
+| Retrieval hit rate@3 | **1.00** |
+| Retrieval MRR@3 | **1.00** |
+| Faithfulness avg | **1.00** |
+| p95 chat latency | **2849.02 ms** |
+| Error rate | **0.00%** |
+
+Reproducible reports:
+- [Full eval report](./evaluation/report_latest_full.json)
+- [Retrieval-only report](./evaluation/report_latest_retrieval.json)
+- [Runtime benchmark report](./evaluation/runtime_benchmark_latest.json)
 
 ## Flagship-Readiness Features
 
@@ -132,7 +152,26 @@ Required GitHub repository secrets:
 
 ## Challenges / Tradeoffs / Results (Template)
 
-Use this section in your resume/project notes:
+## Failures + Tradeoffs
+
+### Known Failure Modes
+- Retrieval can return the right source file but still miss a specific detail chunk.
+- In-memory rate limiting resets on restart and is not shared across replicas.
+- Faithfulness score is heuristic and can overestimate factual grounding.
+- Provider/network timeouts can still happen under external API instability.
+
+### Mitigations
+- Use top-k retrieval + source display + route controls (`chat_only` / `rag_only`) for debugging.
+- Add retries with exponential backoff for model calls and HTTP client requests.
+- Enforce strict input/file limits and payload validation to reduce bad requests.
+- Expose runtime metrics and structured logs to detect latency/error regressions quickly.
+
+### Tradeoffs
+- Simple observability and rate limiting keep deployment lightweight but are less robust than distributed stacks.
+- Cost telemetry is estimate-based unless provider-side token usage metadata is available.
+- Current benchmark is small and domain-focused; broader generalization needs a larger test set.
+
+## Challenges / Tradeoffs / Results (Template)
 
 ### Challenges
 - Balancing rich custom UI with Streamlit rerun behavior.
@@ -150,4 +189,3 @@ Use this section in your resume/project notes:
 - Faithfulness avg: `__`
 - p95 chat latency: `__ ms`
 - Error rate: `__ %`
-

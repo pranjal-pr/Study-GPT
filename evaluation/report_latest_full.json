@@ -1,0 +1,87 @@
+{
+  "summary": {
+    "samples": 5,
+    "retrieval_hit_rate": 1.0,
+    "retrieval_mrr": 1.0,
+    "retrieval_precision_at_k": 1.0,
+    "faithfulness_avg": 1.0,
+    "keyword_recall_avg": 0.7
+  },
+  "rows": [
+    {
+      "id": "q1",
+      "question": "What is the main contribution of the paper?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0,
+      "answer": "I couldn't find relevant information for that in your uploaded documents. \nSources: NIPS-2017-attention-is-all-you-need-Paper.pdf",
+      "faithfulness": 1.0,
+      "keyword_recall": 0.5
+    },
+    {
+      "id": "q2",
+      "question": "What are the two major stacks in the architecture?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0,
+      "answer": "The two major stacks in the architecture are the Encoder stack and the Decoder stack. \n\nSources: NIPS-2017-attention-is-all-you-need-Paper.pdf",
+      "faithfulness": 1.0,
+      "keyword_recall": 1.0
+    },
+    {
+      "id": "q3",
+      "question": "How does self-attention help compared with recurrence?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0,
+      "answer": "Self-attention helps compared to recurrence in several ways. It connects all positions with a constant number of sequentially executed operations, whereas a recurrent layer requires O(n) sequential operations. This makes self-attention layers faster than recurrent layers when the sequence length n is smaller than the representation dimensionality d. Additionally, self-attention reduces the path length between long-range dependencies in the network, making it easier to learn long-range dependencies. The number of operations required to relate signals from two arbitrary input or output positions is constant in self-attention, whereas it grows linearly or logarithmically in recurrent or convolutional models.\n\nSources: NIPS-2017-attention-is-all-you-need-Paper.pdf",
+      "faithfulness": 1.0,
+      "keyword_recall": 0.0
+    },
+    {
+      "id": "q4",
+      "question": "What datasets or tasks were used in evaluation?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0,
+      "answer": "The evaluation used the WMT 2014 English-to-German and English-to-French translation tasks, specifically the newstest2014 tests, to compare the performance of different models, including the Transformer model. \n\nSources: NIPS-2017-attention-is-all-you-need-Paper.pdf",
+      "faithfulness": 1.0,
+      "keyword_recall": 1.0
+    },
+    {
+      "id": "q5",
+      "question": "What is the role of positional encoding?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0,
+      "answer": "The role of positional encoding is to inject information about the relative or absolute position of the tokens in the sequence, as the model contains no recurrence and no convolution, and needs this information to make use of the order of the sequence.\n\nSources: NIPS-2017-attention-is-all-you-need-Paper.pdf",
+      "faithfulness": 1.0,
+      "keyword_recall": 1.0
+    }
+  ]
+}

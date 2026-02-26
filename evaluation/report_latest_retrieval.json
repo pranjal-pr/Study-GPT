@@ -1,0 +1,72 @@
+{
+  "summary": {
+    "samples": 5,
+    "retrieval_hit_rate": 1.0,
+    "retrieval_mrr": 1.0,
+    "retrieval_precision_at_k": 1.0,
+    "faithfulness_avg": null,
+    "keyword_recall_avg": null
+  },
+  "rows": [
+    {
+      "id": "q1",
+      "question": "What is the main contribution of the paper?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0
+    },
+    {
+      "id": "q2",
+      "question": "What are the two major stacks in the architecture?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0
+    },
+    {
+      "id": "q3",
+      "question": "How does self-attention help compared with recurrence?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0
+    },
+    {
+      "id": "q4",
+      "question": "What datasets or tasks were used in evaluation?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0
+    },
+    {
+      "id": "q5",
+      "question": "What is the role of positional encoding?",
+      "retrieved_sources": [
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf",
+        "nips-2017-attention-is-all-you-need-paper.pdf"
+      ],
+      "retrieval_hit": true,
+      "mrr": 1.0,
+      "precision_at_k": 1.0
+    }
+  ]
+}
