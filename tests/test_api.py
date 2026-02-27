@@ -94,6 +94,13 @@ def test_should_use_rag_with_conversational_prefix():
     assert api.should_use_rag("so tell me about machine learning") is False
 
 
+def test_should_use_rag_for_followup_when_history_is_document_context():
+    history = [
+        api.ChatTurn(role="assistant", content="Sources: LLM Interview Questions.pdf"),
+    ]
+    assert api.should_use_rag("What are the most important questions", history) is True
+
+
 def test_rag_only_requires_vector_db(monkeypatch):
     monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
     payload = {
@@ -212,5 +219,47 @@ def test_rag_receives_history_context(monkeypatch):
         response = client.post("/chat", json=payload)
         assert response.status_code == 200
         assert "Tell me about Transformers." in captured["history"]
+    finally:
+        shutil.rmtree(test_vector_dir, ignore_errors=True)
+
+
+def test_auto_mode_prefers_rag_for_followup_with_doc_history(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+    called = {"rag": False}
+
+    class DummyLLM:
+        def invoke(self, _query):
+            class DummyResponse:
+                content = "chat response"
+
+            return DummyResponse()
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+
+    def fake_rag(*_args, **_kwargs):
+        called["rag"] = True
+        return "rag response"
+
+    monkeypatch.setattr(api, "answer_question_with_agent", fake_rag)
+
+    working_dir = Path(api.__file__).resolve().parent
+    test_vector_dir = working_dir / "tests_tmp_vector_db_auto_followup"
+    test_vector_dir.mkdir(exist_ok=True)
+    try:
+        payload = {
+            "query": "What are the most important questions",
+            "provider": "Groq",
+            "model": "llama-3.3-70b-versatile",
+            "api_key": "dummy",
+            "vector_db_path": str(test_vector_dir),
+            "routing_mode": "auto",
+            "chat_history": [
+                {"role": "assistant", "content": "Sources: LLM Interview Questions.pdf"},
+            ],
+        }
+        response = client.post("/chat", json=payload)
+        assert response.status_code == 200
+        assert response.json()["route_used"] == "rag"
+        assert called["rag"] is True
     finally:
         shutil.rmtree(test_vector_dir, ignore_errors=True)

@@ -136,7 +136,51 @@ def _normalize_query_for_routing(query: str) -> str:
     return q
 
 
-def should_use_rag(query: str) -> bool:
+def _history_suggests_document_context(chat_history: List["ChatTurn"]) -> bool:
+    if not chat_history:
+        return False
+
+    history_markers = (
+        "sources:",
+        ".pdf",
+        "document",
+        "documents",
+        "uploaded",
+        "from the paper",
+        "from the doc",
+        "according to",
+    )
+    for turn in chat_history[-MAX_HISTORY_TURNS:]:
+        content = (turn.content or "").lower()
+        if any(marker in content for marker in history_markers):
+            return True
+    return False
+
+
+def _is_follow_up_query(normalized_query: str) -> bool:
+    if not normalized_query:
+        return False
+
+    follow_up_patterns = (
+        "what about",
+        "tell me more",
+        "more detailed",
+        "the last topic",
+        "last topic",
+        "continue",
+        "elaborate",
+        "and ",
+        "also ",
+    )
+    if any(normalized_query.startswith(pattern) for pattern in follow_up_patterns):
+        return True
+
+    follow_up_tokens = ("that", "those", "it", "them", "this", "these", "previous", "earlier", "same")
+    tokens = normalized_query.split()
+    return len(tokens) <= 10 and any(token in follow_up_tokens for token in tokens)
+
+
+def should_use_rag(query: str, chat_history: Optional[List["ChatTurn"]] = None) -> bool:
     """
     Route clearly general-knowledge prompts to normal LLM chat even when a vector DB exists.
     """
@@ -167,6 +211,10 @@ def should_use_rag(query: str) -> bool:
     if any(marker in q for marker in doc_markers):
         return True
 
+    history_is_doc_context = _history_suggests_document_context(chat_history or [])
+    if history_is_doc_context and _is_follow_up_query(q):
+        return True
+
     general_prefixes = (
         "what is",
         "what are",
@@ -187,6 +235,9 @@ def should_use_rag(query: str) -> bool:
         "example of",
     )
     if q.startswith(general_prefixes):
+        # If recent turns were document-grounded, keep follow-up/general questions in RAG.
+        if history_is_doc_context:
+            return True
         return False
 
     return True
@@ -397,7 +448,7 @@ async def chat(request: Request, payload: ChatRequest):
                 )
             use_rag = True
         else:
-            use_rag = bool(payload.vector_db_path and should_use_rag(payload.query))
+            use_rag = bool(payload.vector_db_path and should_use_rag(payload.query, payload.chat_history))
 
         if use_rag:
             vector_db_path = payload.vector_db_path or ""
