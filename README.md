@@ -23,17 +23,6 @@ Live links:
 - App: https://huggingface.co/spaces/shinzobolte/ShinzoGPT
 - GitHub Actions: https://github.com/shinzoxD/streamlit-genai-chatbot/actions
 
-## 60-Second Demo
-
-1. Open the live Space and ask a general question (chat-only quality).
-2. Upload a PDF and click **Process PDFs**.
-3. Ask a document-grounded question and verify the cited source.
-4. Toggle routing mode (`auto`, `chat_only`, `rag_only`) to show behavior.
-5. Show runtime metrics panel (latency, errors, estimated cost).
-
-Live demo app: https://huggingface.co/spaces/shinzobolte/ShinzoGPT
-Recording script: [DEMO_SCRIPT.md](./DEMO_SCRIPT.md)
-
 ## Resume-Ready Bullets
 
 - Built and deployed an end-to-end RAG chatbot (Streamlit + FastAPI + Chroma) on Hugging Face Spaces with GitHub Actions CD.
@@ -82,7 +71,7 @@ Measured at `2026-02-27T00:05:24Z` using:
 | Moonshot Kimi | moonshotai/kimi-k2.5 | failed | - | - | - | - | - |
 | Moonshot Kimi | moonshotai/kimi-k2-thinking | ok | 1.00 | 1.00 | 1.00 | 16093.45 | 0.00% |
 
-Recommended default for demo/recruiter walkthrough: **Groq `llama-3.3-70b-versatile`** (best quality-speed balance in this run).
+Recommended default for recruiter walkthrough: **Groq `llama-3.3-70b-versatile`** (best quality-speed balance in this run).
 
 Moonshot failure reason in this run:
 - `moonshotai/kimi-k2.5`: intermittent upstream `504` timeout.
