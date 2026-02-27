@@ -24,9 +24,8 @@ HTTP_CONNECT_TIMEOUT_SEC = float(os.getenv("HTTP_CONNECT_TIMEOUT_SEC", "6"))
 HTTP_READ_TIMEOUT_CHAT_SEC = float(os.getenv("HTTP_READ_TIMEOUT_CHAT_SEC", "180"))
 HTTP_READ_TIMEOUT_UPLOAD_SEC = float(os.getenv("HTTP_READ_TIMEOUT_UPLOAD_SEC", "360"))
 
-PROVIDER_OPTIONS = ["Groq", "Gemini", "Moonshot Kimi"]
+PROVIDER_OPTIONS = ["Groq", "Moonshot Kimi"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-GEMINI_MODELS = ["gemini-2.0-flash", "gemini-1.5-flash"]
 MOONSHOT_MODELS = ["kimi-k2.5", "moonshot-v1-8k", "moonshot-v1-32k"]
 MOONSHOT_NVIDIA_MODELS = ["moonshotai/kimi-k2.5", "moonshotai/kimi-k2-thinking"]
 ROUTING_OPTIONS = ["Auto", "Chat only", "RAG only"]
@@ -68,8 +67,6 @@ def parse_backend_error(response: requests.Response) -> str:
 def resolve_provider_config(provider: str):
     if provider == "Groq":
         return os.getenv("GROQ_API_KEY"), False, "Model", GROQ_MODELS
-    if provider == "Gemini":
-        return os.getenv("GOOGLE_API_KEY"), False, "Model", GEMINI_MODELS
 
     moonshot_key = os.getenv("MOONSHOT_API_KEY")
     is_nvidia_key = bool(moonshot_key and moonshot_key.startswith("nvapi-"))

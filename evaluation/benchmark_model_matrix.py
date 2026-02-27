@@ -49,8 +49,6 @@ def build_model_matrix(env_values: Dict[str, str]) -> List[Dict[str, Any]]:
     matrix = [
         {"provider": "Groq", "model": "llama-3.3-70b-versatile", "env_key": "GROQ_API_KEY", "is_nvidia_key": False},
         {"provider": "Groq", "model": "llama-3.1-8b-instant", "env_key": "GROQ_API_KEY", "is_nvidia_key": False},
-        {"provider": "Gemini", "model": "gemini-2.0-flash", "env_key": "GOOGLE_API_KEY", "is_nvidia_key": False},
-        {"provider": "Gemini", "model": "gemini-1.5-flash", "env_key": "GOOGLE_API_KEY", "is_nvidia_key": False},
     ]
 
     moonshot_key = env_values.get("MOONSHOT_API_KEY", "")

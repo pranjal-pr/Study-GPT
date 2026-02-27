@@ -55,7 +55,7 @@ flowchart TD
     D --> E[Direct LLM Path]
     D --> F[RAG Path]
 
-    E --> G[Providers<br/>Groq / Gemini / Moonshot]
+    E --> G[Providers<br/>Groq / Moonshot]
     F --> H[RAG Utility<br/>rag_utility.py]
     H --> I[Chroma Vector DB]
     H --> G
@@ -70,25 +70,22 @@ Static architecture image (for platforms without Mermaid support):
 
 ## Quantitative Results (Measured)
 
-Measured at `2026-02-26T22:26:10Z` using:
+Measured at `2026-02-27T00:05:24Z` using:
 - Retrieval benchmark: `evaluation/benchmark.jsonl` on `vector_db_1771979965`
 - Runtime benchmark: 5 real `/chat` requests per model in `chat_only` mode
 - Model matrix tested: all models currently exposed by this app configuration
 
 | Provider | Model | Status | Hit@3 | MRR@3 | Faithfulness | p95 Latency (ms) | Error Rate |
 |---|---|---|---:|---:|---:|---:|---:|
-| Groq | llama-3.3-70b-versatile | ok | 1.00 | 1.00 | 1.00 | 1415.75 | 0.00% |
-| Groq | llama-3.1-8b-instant | ok | 1.00 | 1.00 | 0.80 | 757.60 | 0.00% |
-| Gemini | gemini-2.0-flash | failed | - | - | - | - | - |
-| Gemini | gemini-1.5-flash | failed | - | - | - | - | - |
-| Moonshot Kimi | moonshotai/kimi-k2.5 | ok | 1.00 | 1.00 | 0.96 | 132852.83 | 0.00% |
-| Moonshot Kimi | moonshotai/kimi-k2-thinking | ok | 1.00 | 1.00 | 0.97 | 17672.65 | 0.00% |
+| Groq | llama-3.3-70b-versatile | ok | 1.00 | 1.00 | 1.00 | 1698.38 | 0.00% |
+| Groq | llama-3.1-8b-instant | ok | 1.00 | 1.00 | 0.80 | 891.13 | 0.00% |
+| Moonshot Kimi | moonshotai/kimi-k2.5 | failed | - | - | - | - | - |
+| Moonshot Kimi | moonshotai/kimi-k2-thinking | ok | 1.00 | 1.00 | 1.00 | 16093.45 | 0.00% |
 
 Recommended default for demo/recruiter walkthrough: **Groq `llama-3.3-70b-versatile`** (best quality-speed balance in this run).
 
-Gemini failure reasons during this run:
-- `gemini-2.0-flash`: `429 RESOURCE_EXHAUSTED` (quota exceeded / billing plan limits).
-- `gemini-1.5-flash`: `404 NOT_FOUND` for the configured API version/model access.
+Moonshot failure reason in this run:
+- `moonshotai/kimi-k2.5`: intermittent upstream `504` timeout.
 
 Reproducible reports:
 - [Model matrix report](./evaluation/model_matrix_latest.json)
@@ -164,7 +161,6 @@ See `env_template.txt` for all settings.
 
 Core keys:
 - `GROQ_API_KEY`
-- `GOOGLE_API_KEY`
 - `MOONSHOT_API_KEY`
 
 Operational controls:

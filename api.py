@@ -24,7 +24,6 @@ OBSERVABILITY_TOKEN = os.getenv("OBSERVABILITY_TOKEN", "")
 
 PROVIDER_MODELS = {
     "Groq": {"llama-3.3-70b-versatile", "llama-3.1-8b-instant"},
-    "Gemini": {"gemini-2.0-flash", "gemini-1.5-flash"},
     "Moonshot Kimi": {
         "kimi-k2.5",
         "moonshot-v1-8k",
@@ -36,7 +35,6 @@ PROVIDER_MODELS = {
 
 PROVIDER_ENV_KEYS = {
     "Groq": "GROQ_API_KEY",
-    "Gemini": "GOOGLE_API_KEY",
     "Moonshot Kimi": "MOONSHOT_API_KEY",
 }
 
@@ -200,10 +198,6 @@ def get_llm(provider: str, model: str, api_key: str, is_nvidia_key: bool):
         from langchain_groq import ChatGroq
 
         return ChatGroq(model=model, api_key=cast(Any, api_key))
-    if provider == "Gemini":
-        from langchain_google_genai import ChatGoogleGenerativeAI
-
-        return ChatGoogleGenerativeAI(model=model, google_api_key=api_key)
     if provider == "Moonshot Kimi":
         from langchain_openai import ChatOpenAI
 

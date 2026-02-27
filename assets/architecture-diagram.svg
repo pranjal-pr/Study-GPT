@@ -42,7 +42,7 @@
 
   <rect class="box" x="780" y="740" width="260" height="120"/>
   <text class="label" x="910" y="793" text-anchor="middle">LLM Providers</text>
-  <text class="small" x="910" y="820" text-anchor="middle">Groq / Gemini / Moonshot</text>
+  <text class="small" x="910" y="820" text-anchor="middle">Groq / Moonshot</text>
 
   <rect class="box" x="1110" y="740" width="220" height="120"/>
   <text class="label" x="1220" y="793" text-anchor="middle">Chroma Vector DB</text>
