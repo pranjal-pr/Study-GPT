@@ -16,6 +16,7 @@ ShinzoGPT is a document-aware AI chat app with:
 - Streamlit frontend (`chatbot.py`)
 - FastAPI backend (`api.py`)
 - Chroma vector store + LangChain RAG (`rag_utility.py`)
+- Agent tools for non-RAG chat (`agent_tools.py`): web search + safe calculator
 - Docker + Hugging Face Spaces deployment
 - GitHub Actions auto-deploy to Hugging Face Space
 
@@ -28,9 +29,9 @@ Live links:
 ## Resume-Ready Bullets
 
 - Built and deployed an end-to-end RAG chatbot (Streamlit + FastAPI + Chroma) on Hugging Face Spaces with GitHub Actions CD.
-- Implemented multi-provider model routing and conversational memory with document-grounded retrieval and source-aware responses.
+- Implemented multi-provider model routing, conversational memory, and agent-style tool usage (web search + calculator).
 - Added observability, reliability, and security controls: structured logs, runtime metrics, retries/timeouts, rate limiting, and automated secret scanning.
-- Benchmarked all configured models with reproducible evaluation tooling; achieved retrieval hit@3/MRR@3 of `1.00` on benchmark set.
+- Benchmarked all configured models with reproducible evaluation tooling, including optional RAGAS scoring (faithfulness + answer relevancy).
 - Productionized project quality gates with CI checks (`ruff`, `black --check`, `mypy`, `pytest`) and release versioning (`v1.0.0`).
 
 ## Architecture Diagram
@@ -45,8 +46,10 @@ flowchart TD
     C --> D[Routing Layer<br/>auto, chat_only, rag_only]
     D --> E[Direct LLM Path]
     D --> F[RAG Path]
+    E --> L[Tool Agent Layer<br/>web search + calculator]
 
     E --> G[Providers<br/>Groq / Moonshot]
+    L --> G
     F --> H[RAG Utility<br/>rag_utility.py]
     H --> I[Chroma Vector DB]
     H --> G
@@ -88,12 +91,15 @@ Reproducible reports:
 
 ### 1) Evaluation Metrics
 - Retrieval metrics: hit rate, MRR, precision@k
-- Answer grounding proxy: faithfulness score from response/context overlap
+- Answer grounding proxy: lexical faithfulness score from response/context overlap
 - Keyword recall against benchmark expectations
+- Optional RAGAS metrics: `faithfulness`, `answer_relevancy`
 
 Run evaluation:
 
 ```bash
+pip install -r evaluation/requirements-eval.txt
+
 python evaluation/evaluate_rag.py ^
   --vector-db-path vector_db_1234567890 ^
   --benchmark-file evaluation/benchmark.jsonl ^
@@ -101,6 +107,7 @@ python evaluation/evaluate_rag.py ^
   --provider Groq ^
   --model llama-3.3-70b-versatile ^
   --api-key <YOUR_API_KEY> ^
+  --use-ragas ^
   --out-file evaluation/report.json
 ```
 
@@ -113,6 +120,11 @@ python evaluation/benchmark_model_matrix.py
 ```
 
 This writes `evaluation/model_matrix_latest.json` with per-model metrics and failure reasons.
+To include RAGAS for each model:
+
+```bash
+python evaluation/benchmark_model_matrix.py --use-ragas
+```
 
 ### 2) Testing + Reliability
 - Unit/integration tests in `tests/`
@@ -161,6 +173,12 @@ Operational controls:
 - `HTTP_CONNECT_TIMEOUT_SEC`
 - `HTTP_READ_TIMEOUT_CHAT_SEC`
 - `HTTP_READ_TIMEOUT_UPLOAD_SEC`
+- `ENABLE_TOOLS`
+- `AGENT_PLANNING_ENABLED`
+- `ENABLE_WEB_SEARCH`
+- `WEB_SEARCH_TIMEOUT_SEC`
+- `WEB_SEARCH_MAX_RESULTS`
+- `MAX_CALC_EXPRESSION_CHARS`
 
 Cost estimation (optional):
 - `DEFAULT_INPUT_COST_PER_1K_TOKENS`
@@ -186,6 +204,7 @@ Required GitHub repository secrets:
 - In-memory rate limiting resets on restart and is not shared across replicas.
 - Faithfulness score is heuristic and can overestimate factual grounding.
 - Provider/network timeouts can still happen under external API instability.
+- Web search quality depends on external search API availability and returned snippets.
 
 ### Mitigations
 - Use top-k retrieval + source display + route controls (`chat_only` / `rag_only`) for debugging.

@@ -23,6 +23,7 @@ MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "12"))
 HTTP_CONNECT_TIMEOUT_SEC = float(os.getenv("HTTP_CONNECT_TIMEOUT_SEC", "6"))
 HTTP_READ_TIMEOUT_CHAT_SEC = float(os.getenv("HTTP_READ_TIMEOUT_CHAT_SEC", "180"))
 HTTP_READ_TIMEOUT_UPLOAD_SEC = float(os.getenv("HTTP_READ_TIMEOUT_UPLOAD_SEC", "360"))
+DEFAULT_ENABLE_TOOLS = os.getenv("ENABLE_TOOLS", "1").strip().lower() not in {"0", "false", "off"}
 
 PROVIDER_OPTIONS = ["Groq", "Moonshot Kimi"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
@@ -645,6 +646,11 @@ with st.sidebar:
         help="Auto chooses between chat and RAG. Chat only ignores docs. RAG only forces doc-grounded answers.",
     )
     routing_mode = ROUTING_MODE_MAP[routing_mode_label]
+    enable_tools = st.toggle(
+        "Agent Tools",
+        value=DEFAULT_ENABLE_TOOLS,
+        help="Allow calculator and web-search tools during normal chat.",
+    )
 
     key_chip = "Connected" if api_key else "Missing"
     key_class = "ok" if api_key else "warn"
@@ -769,6 +775,7 @@ st.markdown(
         <span class="chip">Provider: {provider}</span>
         <span class="chip">Model: {selected_model}</span>
         <span class="chip">Routing: {routing_mode_label}</span>
+        <span class="chip">Tools: {"On" if enable_tools else "Off"}</span>
         <span class="chip {mode_class}">{mode_text}</span>
     </div>
     """,
@@ -830,6 +837,7 @@ if user_prompt:
                 "vector_db_path": st.session_state.vector_db_path,
                 "is_nvidia_key": is_nvidia_key,
                 "routing_mode": routing_mode,
+                "enable_tools": enable_tools,
                 "chat_history": history_payload,
             }
             response = HTTP_SESSION.post(
@@ -844,16 +852,24 @@ if user_prompt:
                 bot_reply = result.get("response", "No response from agent.")
                 backend_metrics = result.get("metrics", {})
                 route_used = (result.get("route_used") or "").lower()
-                mode = "RAG" if route_used == "rag" else "Chat"
+                if route_used == "rag":
+                    mode = "RAG"
+                elif route_used == "chat_tools":
+                    mode = "Tool Agent"
+                else:
+                    mode = "Chat"
                 server_latency = backend_metrics.get("latency_ms", latency_ms)
                 input_tokens = backend_metrics.get("estimated_input_tokens", "-")
                 output_tokens = backend_metrics.get("estimated_output_tokens", "-")
                 cost_usd = backend_metrics.get("estimated_cost_usd", 0)
+                tool_used = (backend_metrics.get("tool_used") or "").strip()
                 formatted_cost = format_cost_usd(cost_usd)
                 meta = (
                     f"{provider} | {selected_model} | {mode} | {server_latency} ms"
                     f" | in:{input_tokens} tok | out:{output_tokens} tok | ${formatted_cost}"
                 )
+                if tool_used and tool_used != "none":
+                    meta = f"{meta} | tool:{tool_used}"
                 st.session_state.chat_history.append({"role": "assistant", "content": bot_reply, "meta": meta})
             else:
                 st.session_state.chat_history.append(

@@ -1,14 +1,34 @@
+# ruff: noqa: E402
+
 import argparse
 import json
 import os
 import re
+import sys
+from pathlib import Path
 from statistics import mean
-from typing import Any, Dict, List, cast
+from typing import Any, Dict, List, Optional, cast
 
 from langchain_groq import ChatGroq
 from langchain_openai import ChatOpenAI
 
-from rag_utility import _get_relevant_docs, answer_question_with_agent, get_context_and_sources
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
+
+from rag_utility import _get_relevant_docs, answer_question_with_agent, get_context_and_sources, get_embedding_model
+
+try:
+    from datasets import Dataset
+    from ragas import evaluate as ragas_evaluate
+    from ragas.embeddings import LangchainEmbeddingsWrapper
+    from ragas.llms import LangchainLLMWrapper
+    from ragas.metrics import answer_relevancy as ragas_answer_relevancy_metric
+    from ragas.metrics import faithfulness as ragas_faithfulness_metric
+
+    RAGAS_AVAILABLE = True
+except Exception:
+    RAGAS_AVAILABLE = False
 
 
 def load_benchmark(path: str) -> List[Dict[str, Any]]:
@@ -103,11 +123,54 @@ def keyword_recall(answer: str, required_keywords: List[str]) -> float:
     return round(hits / len(required_keywords), 4)
 
 
+def compute_ragas_scores(
+    questions: List[str],
+    answers: List[str],
+    contexts: List[List[str]],
+    llm: Any,
+) -> Dict[str, Any]:
+    if not RAGAS_AVAILABLE:
+        raise RuntimeError("RAGAS dependencies are not installed. Add ragas and datasets to requirements.")
+
+    dataset = Dataset.from_dict(
+        {
+            "question": questions,
+            "answer": answers,
+            "contexts": contexts,
+        }
+    )
+
+    ragas_result = ragas_evaluate(
+        dataset=dataset,
+        metrics=[ragas_faithfulness_metric, ragas_answer_relevancy_metric],
+        llm=LangchainLLMWrapper(llm),
+        embeddings=LangchainEmbeddingsWrapper(get_embedding_model()),
+    )
+
+    records = ragas_result.to_pandas().to_dict(orient="records")
+    faithfulness_vals = [float(row.get("faithfulness", 0.0) or 0.0) for row in records]
+    answer_relevancy_vals = [float(row.get("answer_relevancy", 0.0) or 0.0) for row in records]
+
+    return {
+        "faithfulness_avg": round(mean(faithfulness_vals), 4) if faithfulness_vals else None,
+        "answer_relevancy_avg": round(mean(answer_relevancy_vals), 4) if answer_relevancy_vals else None,
+        "rows": [
+            {
+                "ragas_faithfulness": round(float(row.get("faithfulness", 0.0) or 0.0), 4),
+                "ragas_answer_relevancy": round(float(row.get("answer_relevancy", 0.0) or 0.0), 4),
+            }
+            for row in records
+        ],
+    }
+
+
 def run_evaluation(args):
     benchmark = load_benchmark(args.benchmark_file)
     llm = None
     if args.provider and args.model and args.api_key:
         llm = make_llm(args.provider, args.model, args.api_key, args.is_nvidia_key)
+    if args.use_ragas and not llm:
+        raise ValueError("--use-ragas requires --provider, --model, and --api-key.")
 
     rows = []
     retrieval_hits = []
@@ -115,6 +178,9 @@ def run_evaluation(args):
     retrieval_precision = []
     faithfulness_values = []
     keyword_values = []
+    ragas_questions: List[str] = []
+    ragas_answers: List[str] = []
+    ragas_contexts: List[List[str]] = []
 
     for item in benchmark:
         question = item["question"]
@@ -144,6 +210,14 @@ def run_evaluation(args):
             faithfulness_values.append(faith)
             keyword_values.append(kw)
 
+            if args.use_ragas:
+                context_chunks = [chunk for chunk in context.split("\n\n---\n\n") if chunk.strip()]
+                if not context_chunks:
+                    context_chunks = [context] if context else [""]
+                ragas_questions.append(question)
+                ragas_answers.append(answer)
+                ragas_contexts.append(context_chunks)
+
         rows.append(record)
 
     summary = {
@@ -153,9 +227,25 @@ def run_evaluation(args):
         "retrieval_precision_at_k": round(mean(retrieval_precision), 4) if retrieval_precision else 0.0,
         "faithfulness_avg": round(mean(faithfulness_values), 4) if faithfulness_values else None,
         "keyword_recall_avg": round(mean(keyword_values), 4) if keyword_values else None,
+        "ragas_faithfulness_avg": None,
+        "ragas_answer_relevancy_avg": None,
     }
 
+    ragas_summary: Optional[Dict[str, Any]] = None
+    if args.use_ragas and ragas_questions:
+        ragas_summary = compute_ragas_scores(ragas_questions, ragas_answers, ragas_contexts, llm)
+        summary["ragas_faithfulness_avg"] = ragas_summary["faithfulness_avg"]
+        summary["ragas_answer_relevancy_avg"] = ragas_summary["answer_relevancy_avg"]
+
+        for row, ragas_row in zip(rows, ragas_summary["rows"]):
+            row.update(ragas_row)
+
     output = {"summary": summary, "rows": rows}
+    if ragas_summary:
+        output["ragas"] = {
+            "faithfulness_avg": ragas_summary["faithfulness_avg"],
+            "answer_relevancy_avg": ragas_summary["answer_relevancy_avg"],
+        }
 
     print(json.dumps(summary, indent=2))
     if args.out_file:
@@ -165,7 +255,7 @@ def run_evaluation(args):
 
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Evaluate RAG retrieval quality and answer faithfulness.")
+    parser = argparse.ArgumentParser(description="Evaluate RAG retrieval quality, faithfulness, and optional RAGAS.")
     parser.add_argument("--vector-db-path", required=True, help="Path to a generated Chroma vector DB directory.")
     parser.add_argument("--benchmark-file", default="evaluation/benchmark.jsonl", help="JSONL benchmark file.")
     parser.add_argument("--top-k", type=int, default=3, help="Top-K docs for retrieval evaluation.")
@@ -173,6 +263,7 @@ def parse_args():
     parser.add_argument("--model", default="", help="Model to run answer generation (optional).")
     parser.add_argument("--api-key", default="", help="API key for provider (optional).")
     parser.add_argument("--is-nvidia-key", action="store_true", help="Use NVIDIA endpoint for Moonshot models.")
+    parser.add_argument("--use-ragas", action="store_true", help="Compute RAGAS faithfulness and answer relevancy.")
     parser.add_argument("--out-file", default="", help="Optional JSON report output path.")
     return parser.parse_args()
 

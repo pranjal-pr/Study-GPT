@@ -9,6 +9,7 @@ from typing import Any, List, Optional, cast
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
+from agent_tools import run_agent_with_tools
 from observability import estimate_cost_usd, estimate_tokens, log_event, metrics_store
 from rag_utility import answer_question_with_agent, process_documents_to_chroma_db
 
@@ -89,6 +90,7 @@ class ChatRequest(BaseModel):
     vector_db_path: Optional[str] = None
     is_nvidia_key: bool = False
     routing_mode: str = "auto"
+    enable_tools: bool = True
     chat_history: List[ChatTurn] = Field(default_factory=list)
 
 
@@ -438,6 +440,7 @@ async def chat(request: Request, payload: ChatRequest):
     try:
         llm = get_llm(payload.provider, payload.model, api_key, payload.is_nvidia_key)
         history_context = _build_history_context(payload.chat_history)
+        tool_used = "none"
 
         if payload.routing_mode == "chat_only":
             use_rag = False
@@ -463,22 +466,37 @@ async def chat(request: Request, payload: ChatRequest):
             if response is None:
                 response = "I couldn't find relevant information for that in your uploaded documents."
         else:
-            if history_context:
-                prompt = (
-                    "You are a helpful conversational assistant.\n"
-                    "Use the conversation history for continuity (references like 'that', 'previous', 'last topic').\n"
-                    "If the history is irrelevant, prioritize the latest user question.\n\n"
-                    f"Conversation history:\n{history_context}\n\n"
-                    f"Current user question:\n{payload.query}"
+            tool_result = None
+            if payload.enable_tools:
+                tool_result = invoke_with_retries(
+                    lambda: run_agent_with_tools(
+                        payload.query,
+                        llm,
+                        chat_history_context=history_context,
+                    )
                 )
+
+            if tool_result and tool_result.get("response"):
+                response = cast(str, tool_result["response"])
+                tool_used = cast(str, tool_result.get("tool_used", "none"))
             else:
-                prompt = payload.query
-            response = invoke_with_retries(lambda: llm.invoke(prompt).content)
+                if history_context:
+                    prompt = (
+                        "You are a helpful conversational assistant.\n"
+                        "Use the conversation history for continuity (references like 'that', 'previous', 'last topic').\n"
+                        "If the history is irrelevant, prioritize the latest user question.\n\n"
+                        f"Conversation history:\n{history_context}\n\n"
+                        f"Current user question:\n{payload.query}"
+                    )
+                else:
+                    prompt = payload.query
+                response = invoke_with_retries(lambda: llm.invoke(prompt).content)
 
         latency_ms = (time.perf_counter() - started) * 1000
         input_tokens = estimate_tokens(payload.query) + estimate_tokens(history_context)
         output_tokens = estimate_tokens(response)
         estimated_cost = estimate_cost_usd(payload.model, input_tokens, output_tokens)
+        route_used = "rag" if use_rag else ("chat_tools" if tool_used != "none" else "chat")
 
         metrics_store.record_chat(
             provider=payload.provider,
@@ -497,17 +515,19 @@ async def chat(request: Request, payload: ChatRequest):
             estimated_output_tokens=output_tokens,
             estimated_cost_usd=estimated_cost,
             rag_used=use_rag,
+            tool_used=tool_used,
             routing_mode=payload.routing_mode,
         )
 
         return {
             "response": response,
-            "route_used": "rag" if use_rag else "chat",
+            "route_used": route_used,
             "metrics": {
                 "latency_ms": round(latency_ms, 2),
                 "estimated_input_tokens": input_tokens,
                 "estimated_output_tokens": output_tokens,
                 "estimated_cost_usd": estimated_cost,
+                "tool_used": tool_used,
             },
         }
     except HTTPException:

@@ -1,6 +1,10 @@
+# ruff: noqa: E402
+
+import argparse
 import json
 import math
 import os
+import sys
 import time
 from pathlib import Path
 from statistics import mean
@@ -8,8 +12,13 @@ from typing import Any, Dict, List
 
 from fastapi.testclient import TestClient
 
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.append(str(ROOT))
+
 from api import app
 from evaluation.evaluate_rag import (
+    compute_ragas_scores,
     evaluate_retrieval,
     faithfulness_score,
     keyword_recall,
@@ -18,7 +27,6 @@ from evaluation.evaluate_rag import (
 )
 from rag_utility import answer_question_with_agent, get_context_and_sources
 
-ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / ".env"
 BENCHMARK_PATH = ROOT / "evaluation" / "benchmark.jsonl"
 OUTPUT_PATH = ROOT / "evaluation" / "model_matrix_latest.json"
@@ -103,6 +111,7 @@ def run_retrieval_and_faithfulness(
     vector_db_path: str,
     benchmark_rows: List[Dict[str, Any]],
     top_k: int,
+    use_ragas: bool,
 ) -> Dict[str, Any]:
     llm = make_llm(provider, model, api_key, is_nvidia_key)
 
@@ -111,6 +120,9 @@ def run_retrieval_and_faithfulness(
     retrieval_precision: List[float] = []
     faithfulness_values: List[float] = []
     keyword_values: List[float] = []
+    ragas_questions: List[str] = []
+    ragas_answers: List[str] = []
+    ragas_contexts: List[List[str]] = []
 
     for item in benchmark_rows:
         question = item["question"]
@@ -126,6 +138,20 @@ def run_retrieval_and_faithfulness(
         context, _ = get_context_and_sources(vector_db_path, question, k=top_k)
         faithfulness_values.append(faithfulness_score(answer, context))
         keyword_values.append(keyword_recall(answer, required_keywords))
+        if use_ragas:
+            context_chunks = [chunk for chunk in context.split("\n\n---\n\n") if chunk.strip()]
+            if not context_chunks:
+                context_chunks = [context] if context else [""]
+            ragas_questions.append(question)
+            ragas_answers.append(answer)
+            ragas_contexts.append(context_chunks)
+
+    ragas_faithfulness_avg = None
+    ragas_answer_relevancy_avg = None
+    if use_ragas and ragas_questions:
+        ragas_summary = compute_ragas_scores(ragas_questions, ragas_answers, ragas_contexts, llm)
+        ragas_faithfulness_avg = ragas_summary["faithfulness_avg"]
+        ragas_answer_relevancy_avg = ragas_summary["answer_relevancy_avg"]
 
     return {
         "samples": len(benchmark_rows),
@@ -134,6 +160,8 @@ def run_retrieval_and_faithfulness(
         "retrieval_precision_at_k": round(mean(retrieval_precision), 4) if retrieval_precision else 0.0,
         "faithfulness_avg": round(mean(faithfulness_values), 4) if faithfulness_values else None,
         "keyword_recall_avg": round(mean(keyword_values), 4) if keyword_values else None,
+        "ragas_faithfulness_avg": ragas_faithfulness_avg,
+        "ragas_answer_relevancy_avg": ragas_answer_relevancy_avg,
     }
 
 
@@ -203,8 +231,8 @@ def run_runtime_benchmark(
 
 def to_markdown_table(rows: List[Dict[str, Any]]) -> str:
     header = (
-        "| Provider | Model | Status | Hit@3 | MRR@3 | Faithfulness | p95 Latency (ms) | Error Rate |\n"
-        "|---|---|---|---:|---:|---:|---:|---:|"
+        "| Provider | Model | Status | Hit@3 | MRR@3 | Faithfulness | RAGAS AnsRel | p95 Latency (ms) | Error Rate |\n"
+        "|---|---|---|---:|---:|---:|---:|---:|---:|"
     )
     lines = [header]
     for row in rows:
@@ -212,20 +240,21 @@ def to_markdown_table(rows: List[Dict[str, Any]]) -> str:
             eval_summary = row.get("evaluation", {})
             run_summary = row.get("runtime", {})
             lines.append(
-                "| {provider} | {model} | {status} | {hit:.2f} | {mrr:.2f} | {faith:.2f} | {p95:.2f} | {err:.2%} |".format(
+                "| {provider} | {model} | {status} | {hit:.2f} | {mrr:.2f} | {faith:.2f} | {ansrel:.2f} | {p95:.2f} | {err:.2%} |".format(
                     provider=row["provider"],
                     model=row["model"],
                     status=row["status"],
                     hit=eval_summary.get("retrieval_hit_rate", 0.0),
                     mrr=eval_summary.get("retrieval_mrr", 0.0),
                     faith=eval_summary.get("faithfulness_avg", 0.0) or 0.0,
+                    ansrel=eval_summary.get("ragas_answer_relevancy_avg", 0.0) or 0.0,
                     p95=run_summary.get("p95_latency_ms", 0.0),
                     err=run_summary.get("error_rate", 0.0),
                 )
             )
         else:
             lines.append(
-                "| {provider} | {model} | {status} | - | - | - | - | - |".format(
+                "| {provider} | {model} | {status} | - | - | - | - | - | - |".format(
                     provider=row["provider"],
                     model=row["model"],
                     status=row["status"],
@@ -234,7 +263,14 @@ def to_markdown_table(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="Benchmark all configured models for retrieval/latency metrics.")
+    parser.add_argument("--use-ragas", action="store_true", help="Also compute RAGAS metrics per model.")
+    return parser.parse_args()
+
+
 def main() -> None:
+    args = parse_args()
     env_values = parse_env_file(ENV_PATH)
     vector_db_path = str(pick_latest_vector_db())
     benchmark_rows = load_benchmark(str(BENCHMARK_PATH))
@@ -281,6 +317,7 @@ def main() -> None:
                 vector_db_path=vector_db_path,
                 benchmark_rows=benchmark_rows,
                 top_k=3,
+                use_ragas=args.use_ragas,
             )
             row["runtime"] = run_runtime_benchmark(
                 provider=provider,
@@ -300,6 +337,7 @@ def main() -> None:
         "benchmark_file": str(BENCHMARK_PATH.relative_to(ROOT)),
         "vector_db_path": Path(vector_db_path).name,
         "runtime_prompt_count_per_model": len(prompts),
+        "ragas_enabled": args.use_ragas,
         "results": results,
         "markdown_table": to_markdown_table(results),
     }

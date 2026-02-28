@@ -263,3 +263,71 @@ def test_auto_mode_prefers_rag_for_followup_with_doc_history(monkeypatch):
         assert called["rag"] is True
     finally:
         shutil.rmtree(test_vector_dir, ignore_errors=True)
+
+
+def test_chat_can_return_tool_agent_route(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+
+    class DummyLLM:
+        def invoke(self, _query):
+            class DummyResponse:
+                content = "unused"
+
+            return DummyResponse()
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+    monkeypatch.setattr(
+        api,
+        "run_agent_with_tools",
+        lambda *_args, **_kwargs: {"response": "2 + 2 is 4.", "tool_used": "calculator"},
+    )
+
+    payload = {
+        "query": "calculate 2+2",
+        "provider": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "api_key": "dummy",
+        "routing_mode": "chat_only",
+        "enable_tools": True,
+    }
+    response = client.post("/chat", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route_used"] == "chat_tools"
+    assert body["metrics"]["tool_used"] == "calculator"
+    assert body["response"] == "2 + 2 is 4."
+
+
+def test_chat_skips_tools_when_disabled(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+
+    class DummyResponse:
+        content = "plain chat"
+
+    class DummyLLM:
+        def invoke(self, _query):
+            return DummyResponse()
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+    called = {"tool_agent": False}
+
+    def fake_tool_agent(*_args, **_kwargs):
+        called["tool_agent"] = True
+        return {"response": "tool answer", "tool_used": "calculator"}
+
+    monkeypatch.setattr(api, "run_agent_with_tools", fake_tool_agent)
+
+    payload = {
+        "query": "calculate 2+2",
+        "provider": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "api_key": "dummy",
+        "routing_mode": "chat_only",
+        "enable_tools": False,
+    }
+    response = client.post("/chat", json=payload)
+    assert response.status_code == 200
+    body = response.json()
+    assert body["route_used"] == "chat"
+    assert body["metrics"]["tool_used"] == "none"
+    assert called["tool_agent"] is False
