@@ -4,14 +4,23 @@ import os
 import re
 from dataclasses import dataclass
 from typing import Any, Optional
+from urllib.parse import urlparse
 
 import requests
+
+try:
+    from duckduckgo_search import DDGS
+
+    DDGS_AVAILABLE = True
+except Exception:
+    DDGS_AVAILABLE = False
 
 WEB_SEARCH_TIMEOUT_SEC = float(os.getenv("WEB_SEARCH_TIMEOUT_SEC", "8"))
 WEB_SEARCH_MAX_RESULTS = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
 ENABLE_WEB_SEARCH = os.getenv("ENABLE_WEB_SEARCH", "1").strip().lower() not in {"0", "false", "off"}
 AGENT_PLANNING_ENABLED = os.getenv("AGENT_PLANNING_ENABLED", "1").strip().lower() not in {"0", "false", "off"}
 MAX_CALC_EXPRESSION_CHARS = int(os.getenv("MAX_CALC_EXPRESSION_CHARS", "120"))
+WEB_SEARCH_CANDIDATE_FACTOR = int(os.getenv("WEB_SEARCH_CANDIDATE_FACTOR", "3"))
 
 SEARCH_HINTS = (
     "search",
@@ -48,6 +57,39 @@ _ALLOWED_BINARY_OPS = {
 _ALLOWED_UNARY_OPS = {
     ast.UAdd: lambda a: +a,
     ast.USub: lambda a: -a,
+}
+SEARCH_STOPWORDS = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "from",
+    "this",
+    "that",
+    "what",
+    "which",
+    "when",
+    "where",
+    "who",
+    "whom",
+    "about",
+    "latest",
+    "current",
+    "best",
+    "model",
+    "models",
+    "tell",
+    "me",
+}
+GENERIC_WEB_QUERIES = {
+    "search",
+    "search web",
+    "web search",
+    "search the web",
+    "look up",
+    "lookup",
+    "web",
+    "internet",
 }
 
 
@@ -129,16 +171,86 @@ def _flatten_related_topics(items: list[dict[str, Any]]) -> list[dict[str, str]]
     return rows
 
 
-def run_web_search_tool(query: str) -> tuple[str, list[str]]:
-    if not ENABLE_WEB_SEARCH:
-        return ("Web search is disabled by configuration.", [])
+def _tokenize(text: str) -> list[str]:
+    normalized = (text or "").lower().replace("open ai", "openai")
+    return re.findall(r"[a-z0-9]+", normalized)
 
-    cleaned = (query or "").strip()
-    if not cleaned:
-        return ("Web search requires a non-empty query.", [])
 
+def _query_terms(query: str) -> list[str]:
+    terms = []
+    for token in _tokenize(query):
+        if len(token) <= 2:
+            continue
+        if token in SEARCH_STOPWORDS:
+            continue
+        terms.append(token)
+    return terms
+
+
+def _relevance_score(query_terms: list[str], title: str, snippet: str, url: str) -> float:
+    if not query_terms:
+        return 0.0
+    haystack = " ".join([title or "", snippet or "", url or ""]).lower()
+    hits = sum(1 for term in query_terms if term in haystack)
+    return hits / len(query_terms)
+
+
+def _is_generic_web_query(query: str) -> bool:
+    q = re.sub(r"\s+", " ", (query or "").strip().lower())
+    return q in GENERIC_WEB_QUERIES
+
+
+def _extract_last_user_query(chat_history_context: str) -> str:
+    if not chat_history_context:
+        return ""
+    candidates = re.findall(r"(?im)^user:\s*(.+)$", chat_history_context)
+    if not candidates:
+        return ""
+    return candidates[-1].strip()
+
+
+def _resolve_web_query(tool_input: str, user_query: str, chat_history_context: str) -> str:
+    query = (tool_input or "").strip() or (user_query or "").strip()
+    if not _is_generic_web_query(query):
+        return query
+
+    last_user = _extract_last_user_query(chat_history_context)
+    if last_user and not _is_generic_web_query(last_user):
+        return last_user
+    return query
+
+
+def _search_via_ddgs(cleaned_query: str) -> list[dict[str, str]]:
+    if not DDGS_AVAILABLE:
+        return []
+
+    try:
+        with DDGS() as ddgs:
+            raw_rows = list(
+                ddgs.text(
+                    cleaned_query,
+                    max_results=max(WEB_SEARCH_MAX_RESULTS * WEB_SEARCH_CANDIDATE_FACTOR, WEB_SEARCH_MAX_RESULTS),
+                )
+            )
+    except Exception:
+        return []
+
+    rows: list[dict[str, str]] = []
+    for item in raw_rows:
+        if not isinstance(item, dict):
+            continue
+        title = str(item.get("title", "")).strip()
+        snippet = str(item.get("body", "")).strip()
+        url = str(item.get("href", "")).strip()
+        if not (title or snippet or url):
+            continue
+        rows.append({"title": title, "snippet": snippet, "url": url})
+    return rows
+
+
+def _search_via_instant_api(cleaned_query: str) -> list[dict[str, str]]:
     params = {
-        "q": cleaned,
+        "q": cleaned_query,
         "format": "json",
         "no_redirect": "1",
         "skip_disambig": "1",
@@ -153,40 +265,86 @@ def run_web_search_tool(query: str) -> tuple[str, list[str]]:
         )
         response.raise_for_status()
         payload = response.json()
-    except Exception as exc:
-        return (f"Web search failed: {type(exc).__name__}", [])
+    except Exception:
+        return []
 
-    lines: list[str] = []
-    source_urls: list[str] = []
-
+    rows: list[dict[str, str]] = []
     answer = (payload.get("Answer") or "").strip()
     abstract = (payload.get("AbstractText") or "").strip()
     abstract_url = (payload.get("AbstractURL") or "").strip()
-
     if answer:
-        lines.append(f"Answer: {answer}")
+        rows.append({"title": "Answer", "snippet": answer, "url": abstract_url})
     if abstract:
-        lines.append(f"Summary: {abstract}")
-    if abstract_url:
-        source_urls.append(abstract_url)
+        rows.append({"title": "Summary", "snippet": abstract, "url": abstract_url})
 
-    related = _flatten_related_topics(payload.get("RelatedTopics", []))
-    for row in related[:WEB_SEARCH_MAX_RESULTS]:
-        lines.append(f"- {row['text']}")
-        if row["url"]:
-            source_urls.append(row["url"])
+    for row in _flatten_related_topics(payload.get("RelatedTopics", [])):
+        rows.append({"title": "Related", "snippet": row["text"], "url": row["url"]})
+    return rows
 
-    if not lines:
-        return ("No high-confidence web results were returned.", [])
 
-    deduped_sources = []
+def _rank_search_results(query: str, rows: list[dict[str, str]]) -> list[dict[str, str]]:
+    query_terms = _query_terms(query)
+    scored_rows: list[tuple[float, dict[str, str]]] = []
+    for row in rows:
+        url = (row.get("url") or "").strip()
+        if "/c/" in url and "duckduckgo.com" in url:
+            continue
+        score = _relevance_score(
+            query_terms=query_terms,
+            title=row.get("title", ""),
+            snippet=row.get("snippet", ""),
+            url=url,
+        )
+        scored_rows.append((score, row))
+
+    scored_rows.sort(key=lambda item: item[0], reverse=True)
+    if query_terms:
+        scored_rows = [item for item in scored_rows if item[0] >= 0.2]
+
+    deduped: list[dict[str, str]] = []
     seen = set()
-    for url in source_urls:
-        if url and url not in seen:
-            deduped_sources.append(url)
-            seen.add(url)
+    for _, row in scored_rows:
+        url = (row.get("url") or "").strip()
+        if not url:
+            continue
+        parsed = urlparse(url)
+        key = f"{parsed.netloc}{parsed.path}".lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+        if len(deduped) >= WEB_SEARCH_MAX_RESULTS:
+            break
+    return deduped
 
-    return ("\n".join(lines), deduped_sources[:WEB_SEARCH_MAX_RESULTS])
+
+def run_web_search_tool(query: str) -> tuple[str, list[str]]:
+    if not ENABLE_WEB_SEARCH:
+        return ("Web search is disabled by configuration.", [])
+
+    cleaned = (query or "").strip()
+    if not cleaned:
+        return ("Web search requires a non-empty query.", [])
+
+    ddgs_rows = _search_via_ddgs(cleaned)
+    fallback_rows = _search_via_instant_api(cleaned) if not ddgs_rows else []
+    ranked_rows = _rank_search_results(cleaned, ddgs_rows or fallback_rows)
+    if not ranked_rows and ddgs_rows and fallback_rows:
+        ranked_rows = _rank_search_results(cleaned, fallback_rows)
+
+    if not ranked_rows:
+        return ("No high-confidence web results were returned for that query.", [])
+
+    lines = []
+    source_urls = []
+    for index, row in enumerate(ranked_rows, start=1):
+        title = row.get("title", "").strip() or "Result"
+        snippet = re.sub(r"\s+", " ", row.get("snippet", "").strip())
+        snippet = snippet[:260]
+        lines.append(f"{index}. {title}: {snippet}")
+        source_urls.append(row.get("url", "").strip())
+
+    return ("\n".join(lines), source_urls)
 
 
 def _extract_json_object(text: str) -> Optional[dict[str, Any]]:
@@ -283,7 +441,8 @@ def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "
     if action.tool == "calculator":
         tool_result = run_calculator_tool(action.tool_input)
     elif action.tool == "web_search":
-        tool_result, source_urls = run_web_search_tool(action.tool_input)
+        resolved_web_query = _resolve_web_query(action.tool_input, query, chat_history_context)
+        tool_result, source_urls = run_web_search_tool(resolved_web_query)
     else:
         return None
 
