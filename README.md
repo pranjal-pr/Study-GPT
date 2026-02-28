@@ -138,6 +138,21 @@ Run tests:
 pytest -q
 ```
 
+### Current Verification Snapshot (2026-02-28)
+- `ruff check .` passed
+- `black --check .` passed
+- `mypy .` passed
+- `pytest -q` passed (`27 passed`)
+- FastAPI smoke checks passed:
+  - `GET /health -> 200`
+  - `/chat` validation behavior for missing key -> `400` with clear message
+  - `/upload` non-PDF validation -> `400` with clear message
+- Streamlit headless startup smoke passed (`200` response)
+
+Limitations of this local verification run:
+- True end-to-end provider completion check is external-key dependent; local Moonshot key returned `401 Invalid Authentication` in smoke test.
+- Docker build was not validated on this machine (Docker CLI unavailable locally).
+
 ### 3) Observability
 - Structured JSON logs (`request_completed`, `chat_completed`, etc.)
 - Request-level latency/error telemetry
@@ -178,6 +193,8 @@ Operational controls:
 - `ENABLE_WEB_SEARCH`
 - `WEB_SEARCH_TIMEOUT_SEC`
 - `WEB_SEARCH_MAX_RESULTS`
+- `WEB_SEARCH_CANDIDATE_FACTOR`
+- `WEB_SEARCH_MIN_RELEVANCE`
 - `MAX_CALC_EXPRESSION_CHARS`
 
 Cost estimation (optional):
@@ -205,6 +222,7 @@ Required GitHub repository secrets:
 - Faithfulness score is heuristic and can overestimate factual grounding.
 - Provider/network timeouts can still happen under external API instability.
 - Web search quality depends on external search API availability and returned snippets.
+- Invalid provider credentials return upstream auth errors (for example, `401 Invalid Authentication`).
 
 ### Mitigations
 - Use top-k retrieval + source display + route controls (`chat_only` / `rag_only`) for debugging.
