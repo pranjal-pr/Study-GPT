@@ -19,6 +19,8 @@ ShinzoGPT is a document-aware AI chat app with:
 - Docker + Hugging Face Spaces deployment
 - GitHub Actions auto-deploy to Hugging Face Space
 
+Website: https://huggingface.co/spaces/shinzobolte/ShinzoGPT
+
 Live links:
 - App: https://huggingface.co/spaces/shinzobolte/ShinzoGPT
 - GitHub Actions: https://github.com/shinzoxD/streamlit-genai-chatbot/actions
