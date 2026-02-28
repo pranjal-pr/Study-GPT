@@ -21,6 +21,7 @@ ENABLE_WEB_SEARCH = os.getenv("ENABLE_WEB_SEARCH", "1").strip().lower() not in {
 AGENT_PLANNING_ENABLED = os.getenv("AGENT_PLANNING_ENABLED", "1").strip().lower() not in {"0", "false", "off"}
 MAX_CALC_EXPRESSION_CHARS = int(os.getenv("MAX_CALC_EXPRESSION_CHARS", "120"))
 WEB_SEARCH_CANDIDATE_FACTOR = int(os.getenv("WEB_SEARCH_CANDIDATE_FACTOR", "3"))
+WEB_SEARCH_MIN_RELEVANCE = float(os.getenv("WEB_SEARCH_MIN_RELEVANCE", "0.25"))
 
 SEARCH_HINTS = (
     "search",
@@ -91,6 +92,25 @@ GENERIC_WEB_QUERIES = {
     "web",
     "internet",
 }
+TRUSTED_DOMAIN_BOOST = {
+    "openai.com": 0.35,
+    "help.openai.com": 0.35,
+    "platform.openai.com": 0.35,
+    "docs.anthropic.com": 0.2,
+    "ai.google.dev": 0.2,
+    "huggingface.co": 0.15,
+    "arxiv.org": 0.15,
+    "github.com": 0.1,
+    "developer.nvidia.com": 0.1,
+}
+LOW_QUALITY_DOMAIN_PENALTY = {
+    "hinative.com": -0.45,
+    "quora.com": -0.35,
+    "reddit.com": -0.15,
+    "medium.com": -0.1,
+    "pinterest.com": -0.4,
+}
+RECENCY_HINTS = {"latest", "current", "today", "recent", "newest", "news"}
 
 
 @dataclass
@@ -187,12 +207,29 @@ def _query_terms(query: str) -> list[str]:
     return terms
 
 
+def _domain_quality_score(url: str) -> float:
+    domain = urlparse(url or "").netloc.lower()
+    if domain.startswith("www."):
+        domain = domain[4:]
+    score = 0.0
+
+    for trusted_domain, boost in TRUSTED_DOMAIN_BOOST.items():
+        if domain == trusted_domain or domain.endswith(f".{trusted_domain}"):
+            score += boost
+
+    for low_domain, penalty in LOW_QUALITY_DOMAIN_PENALTY.items():
+        if domain == low_domain or domain.endswith(f".{low_domain}"):
+            score += penalty
+    return score
+
+
 def _relevance_score(query_terms: list[str], title: str, snippet: str, url: str) -> float:
     if not query_terms:
         return 0.0
     haystack = " ".join([title or "", snippet or "", url or ""]).lower()
     hits = sum(1 for term in query_terms if term in haystack)
-    return hits / len(query_terms)
+    lexical = hits / len(query_terms)
+    return lexical + _domain_quality_score(url)
 
 
 def _is_generic_web_query(query: str) -> bool:
@@ -220,31 +257,53 @@ def _resolve_web_query(tool_input: str, user_query: str, chat_history_context: s
     return query
 
 
+def _query_candidates(cleaned_query: str) -> list[str]:
+    candidates = [cleaned_query]
+    lower_query = cleaned_query.lower()
+    if "openai" in lower_query:
+        candidates.append(f"site:openai.com {cleaned_query}")
+        candidates.append(f"site:help.openai.com {cleaned_query}")
+    return candidates
+
+
 def _search_via_ddgs(cleaned_query: str) -> list[dict[str, str]]:
     if not DDGS_AVAILABLE:
         return []
 
+    rows: list[dict[str, str]] = []
+    query_candidates = _query_candidates(cleaned_query)
+    max_results = max(WEB_SEARCH_MAX_RESULTS * WEB_SEARCH_CANDIDATE_FACTOR, WEB_SEARCH_MAX_RESULTS)
+    use_news = any(hint in cleaned_query.lower() for hint in RECENCY_HINTS)
+
     try:
         with DDGS() as ddgs:
-            raw_rows = list(
-                ddgs.text(
-                    cleaned_query,
-                    max_results=max(WEB_SEARCH_MAX_RESULTS * WEB_SEARCH_CANDIDATE_FACTOR, WEB_SEARCH_MAX_RESULTS),
-                )
-            )
+            for candidate in query_candidates:
+                raw_rows = list(ddgs.text(candidate, max_results=max_results))
+                for item in raw_rows:
+                    if not isinstance(item, dict):
+                        continue
+                    title = str(item.get("title", "")).strip()
+                    snippet = str(item.get("body", "")).strip()
+                    url = str(item.get("href", "")).strip()
+                    if not (title or snippet or url):
+                        continue
+                    rows.append({"title": title, "snippet": snippet, "url": url})
+
+            if use_news:
+                for candidate in query_candidates:
+                    raw_news = list(ddgs.news(candidate, max_results=max_results))
+                    for item in raw_news:
+                        if not isinstance(item, dict):
+                            continue
+                        title = str(item.get("title", "")).strip()
+                        snippet = str(item.get("body", "")).strip()
+                        url = str(item.get("url", "")).strip()
+                        if not (title or snippet or url):
+                            continue
+                        rows.append({"title": title, "snippet": snippet, "url": url})
     except Exception:
         return []
 
-    rows: list[dict[str, str]] = []
-    for item in raw_rows:
-        if not isinstance(item, dict):
-            continue
-        title = str(item.get("title", "")).strip()
-        snippet = str(item.get("body", "")).strip()
-        url = str(item.get("href", "")).strip()
-        if not (title or snippet or url):
-            continue
-        rows.append({"title": title, "snippet": snippet, "url": url})
     return rows
 
 
@@ -299,7 +358,7 @@ def _rank_search_results(query: str, rows: list[dict[str, str]]) -> list[dict[st
 
     scored_rows.sort(key=lambda item: item[0], reverse=True)
     if query_terms:
-        scored_rows = [item for item in scored_rows if item[0] >= 0.2]
+        scored_rows = [item for item in scored_rows if item[0] >= WEB_SEARCH_MIN_RELEVANCE]
 
     deduped: list[dict[str, str]] = []
     seen = set()

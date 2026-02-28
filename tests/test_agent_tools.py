@@ -46,6 +46,11 @@ def test_relevance_scoring_prefers_matching_result():
     assert good > bad
 
 
+def test_domain_quality_penalizes_low_quality_sources():
+    assert agent_tools._domain_quality_score("https://openai.com/blog") > 0
+    assert agent_tools._domain_quality_score("https://hinative.com/questions/1") < 0
+
+
 def test_run_agent_with_tools_uses_last_user_context_for_generic_web_query(monkeypatch):
     captured = {"query": ""}
 
@@ -82,3 +87,8 @@ def test_run_agent_with_tools_uses_last_user_context_for_generic_web_query(monke
     assert captured["query"] == "what is current best llm model from openai"
     assert response is not None
     assert response["tool_used"] == "web_search"
+
+
+def test_query_candidates_include_openai_official_sites():
+    candidates = agent_tools._query_candidates("latest best model from openai")
+    assert any("site:openai.com" in candidate for candidate in candidates)
