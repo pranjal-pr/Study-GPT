@@ -92,3 +92,8 @@ def test_run_agent_with_tools_uses_last_user_context_for_generic_web_query(monke
 def test_query_candidates_include_openai_official_sites():
     candidates = agent_tools._query_candidates("latest best model from openai")
     assert any("site:openai.com" in candidate for candidate in candidates)
+
+
+def test_heuristic_action_does_not_web_search_on_referential_current_query():
+    action = agent_tools._heuristic_action("explain its current use")
+    assert action.tool == "none"

@@ -101,6 +101,10 @@ def test_should_use_rag_for_followup_when_history_is_document_context():
     assert api.should_use_rag("What are the most important questions", history) is True
 
 
+def test_should_use_rag_for_referential_query_without_doc_markers():
+    assert api.should_use_rag("Explain its current use") is True
+
+
 def test_rag_only_requires_vector_db(monkeypatch):
     monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
     payload = {

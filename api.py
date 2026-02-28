@@ -177,7 +177,7 @@ def _is_follow_up_query(normalized_query: str) -> bool:
     if any(normalized_query.startswith(pattern) for pattern in follow_up_patterns):
         return True
 
-    follow_up_tokens = ("that", "those", "it", "them", "this", "these", "previous", "earlier", "same")
+    follow_up_tokens = ("that", "those", "it", "its", "them", "this", "these", "previous", "earlier", "same")
     tokens = normalized_query.split()
     return len(tokens) <= 10 and any(token in follow_up_tokens for token in tokens)
 
@@ -215,6 +215,11 @@ def should_use_rag(query: str, chat_history: Optional[List["ChatTurn"]] = None) 
 
     history_is_doc_context = _history_suggests_document_context(chat_history or [])
     if history_is_doc_context and _is_follow_up_query(q):
+        return True
+
+    # If a KB is attached and the question is clearly referential ("its", "that", "the last topic"),
+    # prefer RAG even when prior turns were not explicitly source-tagged.
+    if _is_follow_up_query(q):
         return True
 
     general_prefixes = (

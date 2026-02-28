@@ -37,6 +37,17 @@ SEARCH_HINTS = (
     "recent",
     "news",
 )
+EXPLICIT_WEB_HINTS = (
+    "search",
+    "look up",
+    "lookup",
+    "find online",
+    "on the web",
+    "on internet",
+    "internet",
+    "web",
+)
+REFERENTIAL_TOKENS = {"it", "its", "this", "that", "those", "them", "previous", "last", "earlier", "same"}
 
 MATH_HINTS = (
     "calculate",
@@ -235,6 +246,11 @@ def _relevance_score(query_terms: list[str], title: str, snippet: str, url: str)
 def _is_generic_web_query(query: str) -> bool:
     q = re.sub(r"\s+", " ", (query or "").strip().lower())
     return q in GENERIC_WEB_QUERIES
+
+
+def _is_referential_query(query: str) -> bool:
+    tokens = _tokenize(query)
+    return any(token in REFERENTIAL_TOKENS for token in tokens)
 
 
 def _extract_last_user_query(chat_history_context: str) -> str:
@@ -439,7 +455,12 @@ def _heuristic_action(query: str) -> AgentAction:
     if expression and (any(hint in lower_q for hint in MATH_HINTS) or re.fullmatch(r"[\d\.\s\+\-\*\/\%\(\)\^]+", q)):
         return AgentAction(tool="calculator", tool_input=expression, reason="Detected arithmetic expression.")
 
-    if any(hint in lower_q for hint in SEARCH_HINTS):
+    has_explicit_web_intent = any(hint in lower_q for hint in EXPLICIT_WEB_HINTS)
+    has_recency_hint = any(hint in lower_q for hint in RECENCY_HINTS)
+
+    # Avoid accidental web-search trigger on referential follow-ups like:
+    # "explain its current use" (should stay in conversation/RAG context).
+    if has_explicit_web_intent or (has_recency_hint and not _is_referential_query(q)):
         cleaned = re.sub(r"^(search|look up|lookup)\s+", "", q, flags=re.IGNORECASE).strip()
         return AgentAction(tool="web_search", tool_input=cleaned or q, reason="Detected web-search intent.")
 
@@ -479,6 +500,9 @@ def _llm_planned_action(query: str, llm_instance, chat_history_context: str = ""
 
 
 def choose_agent_action(query: str, llm_instance, chat_history_context: str = "") -> AgentAction:
+    if _is_referential_query(query) and not any(hint in (query or "").lower() for hint in EXPLICIT_WEB_HINTS):
+        return AgentAction(tool="none", tool_input="", reason="Referential query; avoid web tool over-trigger.")
+
     heuristic = _heuristic_action(query)
     if heuristic.tool != "none":
         return heuristic
