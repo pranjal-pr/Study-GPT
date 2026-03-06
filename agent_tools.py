@@ -1,20 +1,27 @@
 import ast
+import html
 import json
 import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Optional
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
+from xml.etree import ElementTree as ET
 
 import requests
 
 try:
-    from duckduckgo_search import DDGS
+    from ddgs import DDGS
 
     DDGS_AVAILABLE = True
 except Exception:
-    DDGS_AVAILABLE = False
+    try:
+        from duckduckgo_search import DDGS
+
+        DDGS_AVAILABLE = True
+    except Exception:
+        DDGS_AVAILABLE = False
 
 WEB_SEARCH_TIMEOUT_SEC = float(os.getenv("WEB_SEARCH_TIMEOUT_SEC", "8"))
 WEB_SEARCH_MAX_RESULTS = int(os.getenv("WEB_SEARCH_MAX_RESULTS", "5"))
@@ -25,6 +32,19 @@ WEB_SEARCH_CANDIDATE_FACTOR = int(os.getenv("WEB_SEARCH_CANDIDATE_FACTOR", "3"))
 WEB_SEARCH_MIN_RELEVANCE = float(os.getenv("WEB_SEARCH_MIN_RELEVANCE", "0.25"))
 OPEN_METEO_GEOCODING_URL = os.getenv("OPEN_METEO_GEOCODING_URL", "https://geocoding-api.open-meteo.com/v1/search")
 OPEN_METEO_FORECAST_URL = os.getenv("OPEN_METEO_FORECAST_URL", "https://api.open-meteo.com/v1/forecast")
+GOOGLE_NEWS_TOP_RSS_URL = os.getenv("GOOGLE_NEWS_TOP_RSS_URL", "https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en")
+GOOGLE_NEWS_SEARCH_RSS_URL = os.getenv(
+    "GOOGLE_NEWS_SEARCH_RSS_URL",
+    "https://news.google.com/rss/search",
+)
+BBC_WORLD_RSS_URL = os.getenv("BBC_WORLD_RSS_URL", "https://feeds.bbci.co.uk/news/world/rss.xml")
+TWELVE_DATA_PRICE_URL = os.getenv("TWELVE_DATA_PRICE_URL", "https://api.twelvedata.com/price")
+COINGECKO_SIMPLE_PRICE_URL = os.getenv(
+    "COINGECKO_SIMPLE_PRICE_URL",
+    "https://api.coingecko.com/api/v3/simple/price",
+)
+COINBASE_SPOT_PRICE_URL = os.getenv("COINBASE_SPOT_PRICE_URL", "https://api.coinbase.com/v2/prices/{symbol}-USD/spot")
+DEFAULT_HTTP_HEADERS = {"User-Agent": "ShinzoGPT/1.0 (+https://huggingface.co/spaces/shinzobolte/ShinzoGPT)"}
 
 SEARCH_HINTS = (
     "search",
@@ -112,6 +132,9 @@ TRUSTED_DOMAIN_BOOST = {
     "platform.openai.com": 0.35,
     "docs.anthropic.com": 0.2,
     "ai.google.dev": 0.2,
+    "blog.google": 0.25,
+    "deepmind.google": 0.25,
+    "developers.googleblog.com": 0.2,
     "huggingface.co": 0.15,
     "arxiv.org": 0.15,
     "github.com": 0.1,
@@ -151,6 +174,26 @@ WEATHER_LOCATION_PATTERNS = (
     r"\bforecast\s+(?:in|at|for|of)\s+(?P<location>.+)$",
     r"\btemperature\s+(?:in|at|for|of)\s+(?P<location>.+)$",
     r"^(?P<location>.+?)\s+weather$",
+)
+NEWS_INTENT_PATTERNS = (
+    r"\bnews\b",
+    r"\bheadline(?:s)?\b",
+    r"\btop stories\b",
+    r"\bbreaking news\b",
+    r"\bworld news\b",
+    r"\bglobal news\b",
+)
+ASSET_PRICE_HINTS = (
+    "price",
+    "worth",
+    "trading",
+    "traded",
+    "stock",
+    "share",
+    "shares",
+    "usd",
+    "dollar",
+    "dollars",
 )
 LOCATION_NOISE_TOKENS = {
     "ask",
@@ -205,6 +248,35 @@ WEATHER_CODE_LABELS = {
     96: "Thunderstorm with slight hail",
     99: "Thunderstorm with heavy hail",
 }
+STOCK_ALIASES = {
+    "aapl": ("AAPL", "Apple"),
+    "apple": ("AAPL", "Apple"),
+    "msft": ("MSFT", "Microsoft"),
+    "microsoft": ("MSFT", "Microsoft"),
+    "googl": ("GOOGL", "Alphabet"),
+    "google": ("GOOGL", "Alphabet"),
+    "alphabet": ("GOOGL", "Alphabet"),
+    "amzn": ("AMZN", "Amazon"),
+    "amazon": ("AMZN", "Amazon"),
+    "meta": ("META", "Meta"),
+    "meta platforms": ("META", "Meta"),
+    "nvda": ("NVDA", "Nvidia"),
+    "nvidia": ("NVDA", "Nvidia"),
+    "tsla": ("TSLA", "Tesla"),
+    "tesla": ("TSLA", "Tesla"),
+}
+CRYPTO_ALIASES = {
+    "bitcoin": ("bitcoin", "BTC", "Bitcoin"),
+    "btc": ("bitcoin", "BTC", "Bitcoin"),
+    "ethereum": ("ethereum", "ETH", "Ethereum"),
+    "eth": ("ethereum", "ETH", "Ethereum"),
+    "solana": ("solana", "SOL", "Solana"),
+    "sol": ("solana", "SOL", "Solana"),
+    "dogecoin": ("dogecoin", "DOGE", "Dogecoin"),
+    "doge": ("dogecoin", "DOGE", "Dogecoin"),
+    "xrp": ("ripple", "XRP", "XRP"),
+    "ripple": ("ripple", "XRP", "XRP"),
+}
 
 
 @dataclass
@@ -220,6 +292,8 @@ def _normalize_space(text: str) -> str:
 
 def _clean_location_text(text: str) -> str:
     cleaned = _normalize_space(text)
+    cleaned = re.split(r"[?!]", cleaned, maxsplit=1)[0]
+    cleaned = re.split(r"\b(?:what(?:'s| is)|how|tell me|give me)\b", cleaned, maxsplit=1, flags=re.IGNORECASE)[0]
     cleaned = re.sub(r"\b(?:right now|now|today|currently|current|please|pls)\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"[?.!,;:]+$", "", cleaned)
     return _normalize_space(cleaned).strip(" -")
@@ -274,6 +348,34 @@ def _resolve_location_input(query_or_location: str, extractor) -> str:
     if _is_plausible_location_text(cleaned):
         return cleaned
     return ""
+
+
+def _has_news_intent(query: str) -> bool:
+    normalized = _normalize_space(query).lower()
+    return any(re.search(pattern, normalized) for pattern in NEWS_INTENT_PATTERNS)
+
+
+def _extract_stock_match(query: str) -> Optional[tuple[str, str]]:
+    normalized = _normalize_space(query).lower()
+    for alias, match in STOCK_ALIASES.items():
+        if re.search(rf"\b{re.escape(alias)}\b", normalized):
+            return match
+    return None
+
+
+def _extract_crypto_match(query: str) -> Optional[tuple[str, str, str]]:
+    normalized = _normalize_space(query).lower()
+    for alias, match in CRYPTO_ALIASES.items():
+        if re.search(rf"\b{re.escape(alias)}\b", normalized):
+            return match
+    return None
+
+
+def _has_asset_price_intent(query: str) -> bool:
+    normalized = _normalize_space(query).lower()
+    if not any(hint in normalized for hint in ASSET_PRICE_HINTS):
+        return False
+    return _extract_stock_match(query) is not None or _extract_crypto_match(query) is not None
 
 
 def _extract_math_expression(query: str) -> str:
@@ -353,23 +455,29 @@ def _geocode_location(location: str) -> Optional[dict[str, Any]]:
     if not cleaned:
         return None
 
-    try:
-        response = requests.get(
-            OPEN_METEO_GEOCODING_URL,
-            params={
-                "name": cleaned,
-                "count": 5,
-                "language": "en",
-                "format": "json",
-            },
-            timeout=WEB_SEARCH_TIMEOUT_SEC,
-        )
-        response.raise_for_status()
-        payload = response.json()
-    except Exception:
-        return None
+    def _fetch_geocode_results(name: str) -> list[dict[str, Any]]:
+        try:
+            response = requests.get(
+                OPEN_METEO_GEOCODING_URL,
+                params={
+                    "name": name,
+                    "count": 5,
+                    "language": "en",
+                    "format": "json",
+                },
+                headers=DEFAULT_HTTP_HEADERS,
+                timeout=WEB_SEARCH_TIMEOUT_SEC,
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except Exception:
+            return []
+        results = payload.get("results") or []
+        return [result for result in results if isinstance(result, dict)]
 
-    results = payload.get("results") or []
+    results = _fetch_geocode_results(cleaned)
+    if not results and "," in cleaned:
+        results = _fetch_geocode_results(cleaned.split(",", 1)[0].strip())
     if not results:
         return None
 
@@ -499,6 +607,146 @@ def run_weather_tool(query_or_location: str) -> str:
         summary_parts.append(f"wind {_format_number(wind_speed)}{units.get('wind_speed_10m', 'km/h')}")
 
     return f"Current weather in {_format_location_name(place)}: {', '.join(summary_parts)}. Source: Open-Meteo."
+
+
+def _parse_rss_items(xml_text: str, max_items: int = 5) -> list[dict[str, str]]:
+    try:
+        root = ET.fromstring(xml_text)
+    except ET.ParseError:
+        return []
+
+    items: list[dict[str, str]] = []
+    for item in root.findall(".//item"):
+        title = _normalize_space(item.findtext("title", default=""))
+        link = _normalize_space(item.findtext("link", default=""))
+        pub_date = _normalize_space(item.findtext("pubDate", default=""))
+        if not title or not link:
+            continue
+        items.append({"title": title, "url": link, "pub_date": pub_date})
+        if len(items) >= max_items:
+            break
+    return items
+
+
+def run_news_tool(query: str) -> tuple[str, list[str]]:
+    normalized = _normalize_space(query)
+    lower_query = normalized.lower()
+    if not normalized:
+        return ("News lookup requires a non-empty query.", [])
+
+    url = GOOGLE_NEWS_TOP_RSS_URL
+    params: dict[str, str] | None = None
+    if any(token in lower_query for token in ("world", "global")):
+        url = BBC_WORLD_RSS_URL
+    elif not any(token in lower_query for token in ("headline", "headlines", "top stories", "breaking news")):
+        url = GOOGLE_NEWS_SEARCH_RSS_URL
+        params = {"q": normalized, "hl": "en-US", "gl": "US", "ceid": "US:en"}
+
+    try:
+        response = requests.get(url, params=params, headers=DEFAULT_HTTP_HEADERS, timeout=WEB_SEARCH_TIMEOUT_SEC)
+        response.raise_for_status()
+    except Exception:
+        return ("I couldn't retrieve current news headlines right now.", [])
+
+    items = _parse_rss_items(response.text, max_items=WEB_SEARCH_MAX_RESULTS)
+    if not items:
+        return ("I couldn't parse any current news headlines right now.", [])
+
+    lines = []
+    source_urls = []
+    for index, item in enumerate(items, start=1):
+        date_suffix = f" ({item['pub_date']})" if item.get("pub_date") else ""
+        lines.append(f"{index}. {item['title']}{date_suffix}")
+        source_urls.append(item["url"])
+
+    source_name = "BBC World RSS" if url == BBC_WORLD_RSS_URL else "Google News RSS"
+    return (f"Top news headlines from {source_name}:\n" + "\n".join(lines), source_urls)
+
+
+def _fetch_stock_price(symbol: str) -> Optional[str]:
+    try:
+        response = requests.get(
+            TWELVE_DATA_PRICE_URL,
+            params={"symbol": symbol, "apikey": "demo"},
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=WEB_SEARCH_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        price = payload.get("price")
+        if price:
+            return f"{_format_number(price)} USD (Twelve Data demo)"
+    except Exception:
+        pass
+
+    try:
+        response = requests.get(
+            f"https://stooq.com/q/l/?s={symbol.lower()}.us&i=d",
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=WEB_SEARCH_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        row = response.text.strip().split(",")
+        if len(row) >= 7 and row[6] not in {"N/D", ""}:
+            date_part = row[1].strip()
+            time_part = row[2].strip()
+            timestamp = f" as of {date_part} {time_part} UTC" if date_part and time_part else ""
+            return f"{_format_number(row[6])} USD{timestamp} (Stooq)"
+    except Exception:
+        return None
+    return None
+
+
+def _fetch_crypto_price(coin_id: str, symbol: str) -> Optional[str]:
+    try:
+        response = requests.get(
+            COINGECKO_SIMPLE_PRICE_URL,
+            params={"ids": coin_id, "vs_currencies": "usd"},
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=WEB_SEARCH_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        usd_price = payload.get(coin_id, {}).get("usd")
+        if usd_price is not None:
+            return f"{_format_number(usd_price)} USD (CoinGecko)"
+    except Exception:
+        pass
+
+    try:
+        response = requests.get(
+            COINBASE_SPOT_PRICE_URL.format(symbol=symbol),
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=WEB_SEARCH_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        payload = response.json()
+        amount = payload.get("data", {}).get("amount")
+        if amount:
+            return f"{_format_number(amount)} USD (Coinbase spot)"
+    except Exception:
+        return None
+    return None
+
+
+def run_asset_price_tool(query: str) -> str:
+    crypto_match = _extract_crypto_match(query)
+    if crypto_match:
+        coin_id, symbol, label = crypto_match
+        price = _fetch_crypto_price(coin_id=coin_id, symbol=symbol)
+        if price:
+            return f"Current {label} price: {price}. Source: {price.split('(', 1)[-1].rstrip(')')}."
+        return f"I couldn't retrieve the current {label} price."
+
+    stock_match = _extract_stock_match(query)
+    if stock_match:
+        symbol, label = stock_match
+        price = _fetch_stock_price(symbol)
+        if price:
+            return f"Latest {label} ({symbol}) price: {price}. Source: {price.split('(', 1)[-1].rstrip(')')}."
+        return f"I couldn't retrieve the latest {label} ({symbol}) price."
+
+    return "Price lookup requires a supported stock or cryptocurrency."
 
 
 def _flatten_related_topics(items: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -643,6 +891,31 @@ def _query_candidates(cleaned_query: str) -> list[str]:
                 f"site:weather.com {weather_location} weather",
             ]
         )
+    if _has_news_intent(cleaned_query):
+        candidates.extend(
+            [
+                "top world headlines",
+                "global breaking news",
+                "latest world news",
+            ]
+        )
+    if "best model" in lower_query or "current model" in lower_query or "latest model" in lower_query:
+        if "openai" in lower_query or "open ai" in lower_query:
+            candidates.extend(
+                [
+                    "site:platform.openai.com/docs/models OpenAI models",
+                    "site:help.openai.com OpenAI best model",
+                    "site:openai.com OpenAI latest model",
+                ]
+            )
+        if "gemini" in lower_query or "google" in lower_query:
+            candidates.extend(
+                [
+                    "site:ai.google.dev gemini models",
+                    "site:blog.google gemini latest model",
+                    "site:deepmind.google gemini model",
+                ]
+            )
     if "openai" in lower_query:
         candidates.append(f"site:openai.com {cleaned_query}")
         candidates.append(f"site:help.openai.com {cleaned_query}")
@@ -665,7 +938,7 @@ def _search_via_ddgs(cleaned_query: str) -> list[dict[str, str]]:
     rows: list[dict[str, str]] = []
     query_candidates = _query_candidates(cleaned_query)
     max_results = max(WEB_SEARCH_MAX_RESULTS * WEB_SEARCH_CANDIDATE_FACTOR, WEB_SEARCH_MAX_RESULTS)
-    use_news = any(hint in cleaned_query.lower() for hint in RECENCY_HINTS)
+    use_news = any(hint in cleaned_query.lower() for hint in RECENCY_HINTS) or _has_news_intent(cleaned_query)
 
     try:
         with DDGS() as ddgs:
@@ -696,6 +969,47 @@ def _search_via_ddgs(cleaned_query: str) -> list[dict[str, str]]:
     except Exception:
         return []
 
+    return rows
+
+
+def _decode_ddg_html_url(raw_url: str) -> str:
+    unescaped = html.unescape(raw_url or "").strip()
+    if unescaped.startswith("//"):
+        unescaped = f"https:{unescaped}"
+    parsed = urlparse(unescaped)
+    if "duckduckgo.com" not in parsed.netloc:
+        return unescaped
+    encoded = parse_qs(parsed.query).get("uddg", [""])[0]
+    return unquote(encoded) if encoded else unescaped
+
+
+def _search_via_html_ddg(cleaned_query: str) -> list[dict[str, str]]:
+    try:
+        response = requests.get(
+            "https://html.duckduckgo.com/html/",
+            params={"q": cleaned_query},
+            headers=DEFAULT_HTTP_HEADERS,
+            timeout=WEB_SEARCH_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        page = response.text
+    except Exception:
+        return []
+
+    links = re.findall(r'result__a[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, flags=re.IGNORECASE | re.DOTALL)
+    snippets = re.findall(r'class="result__snippet"[^>]*>(.*?)</a>', page, flags=re.IGNORECASE | re.DOTALL)
+
+    rows: list[dict[str, str]] = []
+    for index, (href, title_html) in enumerate(links):
+        title = _normalize_space(re.sub(r"<.*?>", "", html.unescape(title_html)))
+        snippet_html = snippets[index] if index < len(snippets) else ""
+        snippet = _normalize_space(re.sub(r"<.*?>", "", html.unescape(snippet_html)))
+        url = _decode_ddg_html_url(href)
+        if not (title or snippet or url):
+            continue
+        rows.append({"title": title, "snippet": snippet, "url": url})
+        if len(rows) >= max(WEB_SEARCH_MAX_RESULTS * WEB_SEARCH_CANDIDATE_FACTOR, WEB_SEARCH_MAX_RESULTS):
+            break
     return rows
 
 
@@ -778,10 +1092,13 @@ def run_web_search_tool(query: str) -> tuple[str, list[str]]:
         return ("Web search requires a non-empty query.", [])
 
     ddgs_rows = _search_via_ddgs(cleaned)
-    fallback_rows = _search_via_instant_api(cleaned) if not ddgs_rows else []
-    ranked_rows = _rank_search_results(cleaned, ddgs_rows or fallback_rows)
-    if not ranked_rows and ddgs_rows and fallback_rows:
-        ranked_rows = _rank_search_results(cleaned, fallback_rows)
+    html_rows = _search_via_html_ddg(cleaned) if not ddgs_rows else []
+    fallback_rows = _search_via_instant_api(cleaned) if not (ddgs_rows or html_rows) else []
+    ranked_rows = _rank_search_results(cleaned, ddgs_rows or html_rows or fallback_rows)
+    if not ranked_rows and ddgs_rows and html_rows:
+        ranked_rows = _rank_search_results(cleaned, html_rows)
+    if not ranked_rows and (ddgs_rows or html_rows):
+        ranked_rows = (ddgs_rows or html_rows)[:WEB_SEARCH_MAX_RESULTS]
 
     if not ranked_rows:
         return ("No high-confidence web results were returned for that query.", [])
@@ -845,6 +1162,12 @@ def _heuristic_action(query: str) -> AgentAction:
             reason="Detected weather lookup.",
         )
 
+    if _has_asset_price_intent(q):
+        return AgentAction(tool="asset_price", tool_input=q, reason="Detected asset-price lookup.")
+
+    if _has_news_intent(q):
+        return AgentAction(tool="news", tool_input=q, reason="Detected news lookup.")
+
     has_explicit_web_intent = any(hint in lower_q for hint in EXPLICIT_WEB_HINTS)
     has_recency_hint = any(hint in lower_q for hint in RECENCY_HINTS)
 
@@ -864,10 +1187,12 @@ def _llm_planned_action(query: str, llm_instance, chat_history_context: str = ""
     planner_prompt = (
         "You are a tool router.\n"
         "Choose exactly one tool for the user query.\n"
-        "Allowed tools: none, calculator, current_time, weather, web_search.\n"
+        "Allowed tools: none, calculator, current_time, weather, asset_price, news, web_search.\n"
         "Use calculator only for arithmetic.\n"
         "Use current_time for local time queries tied to a city or place.\n"
         "Use weather for current weather queries tied to a city or place.\n"
+        "Use asset_price for current stock or cryptocurrency price questions.\n"
+        "Use news for current headlines or news lookups.\n"
         "Use web_search for latest/current/news/internet lookup when the dedicated tools do not fit.\n"
         "Return strict JSON only with keys: tool, tool_input, reason.\n\n"
         f"Conversation history:\n{chat_history_context or '[none]'}\n\n"
@@ -881,7 +1206,7 @@ def _llm_planned_action(query: str, llm_instance, chat_history_context: str = ""
         tool = str(data.get("tool", "none")).strip().lower()
         tool_input = str(data.get("tool_input", "")).strip()
         reason = str(data.get("reason", "")).strip() or "LLM-selected tool."
-        if tool not in {"none", "calculator", "current_time", "weather", "web_search"}:
+        if tool not in {"none", "calculator", "current_time", "weather", "asset_price", "news", "web_search"}:
             return AgentAction(tool="none", tool_input="", reason="Planner returned unsupported tool.")
         if tool == "calculator":
             tool_input = tool_input or _extract_math_expression(query)
@@ -889,6 +1214,8 @@ def _llm_planned_action(query: str, llm_instance, chat_history_context: str = ""
             tool_input = tool_input or _extract_time_location(query)
         if tool == "weather":
             tool_input = tool_input or _extract_weather_location(query)
+        if tool in {"asset_price", "news"}:
+            tool_input = tool_input or query
         if tool == "web_search":
             tool_input = tool_input or query
         return AgentAction(tool=tool, tool_input=tool_input, reason=reason)
@@ -929,11 +1256,26 @@ def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "
         tool_result = run_current_time_tool(action.tool_input or resolved_query)
     elif action.tool == "weather":
         tool_result = run_weather_tool(action.tool_input or resolved_query)
+    elif action.tool == "asset_price":
+        tool_result = run_asset_price_tool(action.tool_input or resolved_query)
+    elif action.tool == "news":
+        tool_result, source_urls = run_news_tool(action.tool_input or resolved_query)
     elif action.tool == "web_search":
         resolved_web_query = _resolve_web_query(action.tool_input, resolved_query, chat_history_context)
         tool_result, source_urls = run_web_search_tool(resolved_web_query)
     else:
         return None
+
+    if action.tool in {"current_time", "weather", "asset_price", "news"}:
+        response = tool_result
+        if source_urls and "sources:" not in response.lower():
+            response = f"{response}\n\nSources: {', '.join(source_urls[:3])}"
+        return {
+            "response": response,
+            "tool_used": action.tool,
+            "tool_input": action.tool_input,
+            "tool_reason": action.reason,
+        }
 
     synthesis_prompt = (
         "You are a helpful assistant.\n"

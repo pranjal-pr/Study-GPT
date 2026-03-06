@@ -13,7 +13,7 @@ def test_choose_agent_action_detects_web_search_intent():
 
             return DummyResponse()
 
-    action = agent_tools.choose_agent_action("search latest ai news", DummyLLM())
+    action = agent_tools.choose_agent_action("search latest OpenAI API docs", DummyLLM())
     assert action.tool == "web_search"
 
 
@@ -66,6 +66,33 @@ def test_choose_agent_action_detects_weather_of_intent():
     action = agent_tools.choose_agent_action("what is the current weather of jaipur", DummyLLM())
     assert action.tool == "weather"
     assert action.tool_input.lower() == "jaipur"
+
+
+def test_choose_agent_action_detects_news_intent():
+    class DummyLLM:
+        def invoke(self, _prompt):
+            class DummyResponse:
+                content = '{"tool":"none","tool_input":"","reason":"none"}'
+
+            return DummyResponse()
+
+    action = agent_tools.choose_agent_action("what are the top global headlines right now?", DummyLLM())
+    assert action.tool == "news"
+
+
+def test_choose_agent_action_detects_asset_price_intent():
+    class DummyLLM:
+        def invoke(self, _prompt):
+            class DummyResponse:
+                content = '{"tool":"none","tool_input":"","reason":"none"}'
+
+            return DummyResponse()
+
+    stock_action = agent_tools.choose_agent_action("What is the current trading price of Apple stock?", DummyLLM())
+    crypto_action = agent_tools.choose_agent_action("How much is one bitcoin worth in US dollars today?", DummyLLM())
+
+    assert stock_action.tool == "asset_price"
+    assert crypto_action.tool == "asset_price"
 
 
 def test_choose_agent_action_current_time_without_location_keeps_empty_tool_input():
@@ -173,7 +200,7 @@ def test_run_current_time_tool_formats_open_meteo_response(monkeypatch):
         def json(self):
             return self._payload
 
-    def fake_get(url, params=None, timeout=None):
+    def fake_get(url, params=None, timeout=None, headers=None):
         assert timeout == agent_tools.WEB_SEARCH_TIMEOUT_SEC
         if "geocoding-api" in url:
             assert params["name"] == "jaipur"
@@ -224,7 +251,7 @@ def test_run_weather_tool_formats_open_meteo_response(monkeypatch):
         def json(self):
             return self._payload
 
-    def fake_get(url, params=None, timeout=None):
+    def fake_get(url, params=None, timeout=None, headers=None):
         assert timeout == agent_tools.WEB_SEARCH_TIMEOUT_SEC
         if "geocoding-api" in url:
             return DummyResponse(
@@ -273,6 +300,131 @@ def test_run_weather_tool_formats_open_meteo_response(monkeypatch):
 def test_run_weather_tool_without_location_requests_location():
     result = agent_tools.run_weather_tool("what is the current weather")
     assert result == "Weather lookup requires a city or location."
+
+
+def test_run_weather_tool_handles_richer_location_prompt(monkeypatch):
+    class DummyResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        if "geocoding-api" in url:
+            assert params["name"] == "Jaipur, Rajasthan"
+            return DummyResponse(
+                {
+                    "results": [
+                        {
+                            "name": "Jaipur",
+                            "admin1": "Rajasthan",
+                            "country": "India",
+                            "latitude": 26.91,
+                            "longitude": 75.79,
+                            "timezone": "Asia/Kolkata",
+                            "population": 3000000,
+                        }
+                    ]
+                }
+            )
+        return DummyResponse(
+            {
+                "current": {
+                    "temperature_2m": 33.2,
+                    "apparent_temperature": 33.3,
+                    "relative_humidity_2m": 20,
+                    "weather_code": 0,
+                    "wind_speed_10m": 6.9,
+                },
+                "current_units": {
+                    "temperature_2m": "Â°C",
+                    "apparent_temperature": "Â°C",
+                    "relative_humidity_2m": "%",
+                    "wind_speed_10m": "km/h",
+                },
+            }
+        )
+
+    monkeypatch.setattr(agent_tools.requests, "get", fake_get)
+
+    result = agent_tools.run_weather_tool(
+        "What is the current weather in Jaipur, Rajasthan right now? What is the temperature?"
+    )
+
+    assert "Jaipur, Rajasthan, India" in result
+    assert "33.2Â°C" in result
+
+
+def test_run_news_tool_formats_rss(monkeypatch):
+    class DummyResponse:
+        text = (
+            "<?xml version='1.0'?>"
+            "<rss><channel>"
+            "<item><title>Headline One</title><link>https://example.com/1</link><pubDate>Fri, 06 Mar 2026 10:00:00 GMT</pubDate></item>"
+            "<item><title>Headline Two</title><link>https://example.com/2</link><pubDate>Fri, 06 Mar 2026 09:00:00 GMT</pubDate></item>"
+            "</channel></rss>"
+        )
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(agent_tools.requests, "get", lambda *args, **kwargs: DummyResponse())
+
+    summary, urls = agent_tools.run_news_tool("what are the top global headlines right now?")
+
+    assert "Top news headlines" in summary
+    assert "Headline One" in summary
+    assert urls == ["https://example.com/1", "https://example.com/2"]
+
+
+def test_run_asset_price_tool_formats_stock_quote(monkeypatch):
+    class DummyResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        assert params == {"symbol": "AAPL", "apikey": "demo"}
+        return DummyResponse({"price": "260.26001"})
+
+    monkeypatch.setattr(agent_tools.requests, "get", fake_get)
+
+    result = agent_tools.run_asset_price_tool("What is the current trading price of Apple stock?")
+
+    assert "Apple (AAPL)" in result
+    assert "260.3 USD" in result
+
+
+def test_run_asset_price_tool_formats_crypto_quote(monkeypatch):
+    class DummyResponse:
+        def __init__(self, payload):
+            self._payload = payload
+
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return self._payload
+
+    def fake_get(url, params=None, timeout=None, headers=None):
+        assert params == {"ids": "bitcoin", "vs_currencies": "usd"}
+        return DummyResponse({"bitcoin": {"usd": 70510}})
+
+    monkeypatch.setattr(agent_tools.requests, "get", fake_get)
+
+    result = agent_tools.run_asset_price_tool("How much is one bitcoin worth in US dollars today?")
+
+    assert "Bitcoin" in result
+    assert "70510 USD" in result
 
 
 def test_run_agent_with_tools_reuses_previous_question_for_tool_command(monkeypatch):
