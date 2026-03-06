@@ -3,6 +3,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -22,6 +23,8 @@ AGENT_PLANNING_ENABLED = os.getenv("AGENT_PLANNING_ENABLED", "1").strip().lower(
 MAX_CALC_EXPRESSION_CHARS = int(os.getenv("MAX_CALC_EXPRESSION_CHARS", "120"))
 WEB_SEARCH_CANDIDATE_FACTOR = int(os.getenv("WEB_SEARCH_CANDIDATE_FACTOR", "3"))
 WEB_SEARCH_MIN_RELEVANCE = float(os.getenv("WEB_SEARCH_MIN_RELEVANCE", "0.25"))
+OPEN_METEO_GEOCODING_URL = os.getenv("OPEN_METEO_GEOCODING_URL", "https://geocoding-api.open-meteo.com/v1/search")
+OPEN_METEO_FORECAST_URL = os.getenv("OPEN_METEO_FORECAST_URL", "https://api.open-meteo.com/v1/forecast")
 
 SEARCH_HINTS = (
     "search",
@@ -122,6 +125,51 @@ LOW_QUALITY_DOMAIN_PENALTY = {
     "pinterest.com": -0.4,
 }
 RECENCY_HINTS = {"latest", "current", "today", "recent", "newest", "news"}
+TOOL_CONTROL_PATTERNS = (
+    r"^(?:please\s+)?(?:use|try|enable)\s+(?:the\s+)?(?:web\s+search(?:\s+tools?)?|search(?:\s+tools?)?|tools?|tool)\b.*$",
+    r"^(?:please\s+)?(?:search|look up|lookup)\s+(?:the\s+web\s+)?(?:for\s+)?(?:it|that|this)\s*$",
+)
+TIME_LOCATION_PATTERNS = (
+    r"\bcurrent\s+time\s+(?:in|at|for)\s+(?P<location>.+)$",
+    r"\btime\s+(?:in|at|for)\s+(?P<location>.+)$",
+    r"^(?P<location>.+?)\s+time$",
+)
+WEATHER_LOCATION_PATTERNS = (
+    r"\b(?:current\s+)?weather\s+(?:in|at|for)\s+(?P<location>.+)$",
+    r"\bforecast\s+(?:in|at|for)\s+(?P<location>.+)$",
+    r"\btemperature\s+(?:in|at|for)\s+(?P<location>.+)$",
+    r"^(?P<location>.+?)\s+weather$",
+)
+WEATHER_CODE_LABELS = {
+    0: "Clear sky",
+    1: "Mainly clear",
+    2: "Partly cloudy",
+    3: "Overcast",
+    45: "Fog",
+    48: "Depositing rime fog",
+    51: "Light drizzle",
+    53: "Moderate drizzle",
+    55: "Dense drizzle",
+    56: "Light freezing drizzle",
+    57: "Dense freezing drizzle",
+    61: "Slight rain",
+    63: "Moderate rain",
+    65: "Heavy rain",
+    66: "Light freezing rain",
+    67: "Heavy freezing rain",
+    71: "Slight snow",
+    73: "Moderate snow",
+    75: "Heavy snow",
+    77: "Snow grains",
+    80: "Slight rain showers",
+    81: "Moderate rain showers",
+    82: "Violent rain showers",
+    85: "Slight snow showers",
+    86: "Heavy snow showers",
+    95: "Thunderstorm",
+    96: "Thunderstorm with slight hail",
+    99: "Thunderstorm with heavy hail",
+}
 
 
 @dataclass
@@ -129,6 +177,40 @@ class AgentAction:
     tool: str
     tool_input: str
     reason: str
+
+
+def _normalize_space(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip())
+
+
+def _clean_location_text(text: str) -> str:
+    cleaned = _normalize_space(text)
+    cleaned = re.sub(r"\b(?:right now|now|today|currently|current|please|pls)\b", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"[?.!,;:]+$", "", cleaned)
+    return _normalize_space(cleaned).strip(" -")
+
+
+def _extract_location_from_patterns(query: str, patterns: tuple[str, ...]) -> str:
+    text = _normalize_space(query)
+    if not text:
+        return ""
+
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        location = _clean_location_text(match.group("location"))
+        if location:
+            return location
+    return ""
+
+
+def _extract_time_location(query: str) -> str:
+    return _extract_location_from_patterns(query, TIME_LOCATION_PATTERNS)
+
+
+def _extract_weather_location(query: str) -> str:
+    return _extract_location_from_patterns(query, WEATHER_LOCATION_PATTERNS)
 
 
 def _extract_math_expression(query: str) -> str:
@@ -184,6 +266,176 @@ def run_calculator_tool(expression: str) -> str:
         return f"{value:.8f}".rstrip("0").rstrip(".")
     except Exception:
         return "Calculator could not evaluate that expression safely."
+
+
+def _format_location_name(place: dict[str, Any]) -> str:
+    parts = []
+    for key in ("name", "admin1", "country"):
+        value = str(place.get(key, "")).strip()
+        if value and value not in parts:
+            parts.append(value)
+    return ", ".join(parts)
+
+
+def _format_number(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    return f"{number:.1f}".rstrip("0").rstrip(".")
+
+
+def _geocode_location(location: str) -> Optional[dict[str, Any]]:
+    cleaned = _clean_location_text(location)
+    if not cleaned:
+        return None
+
+    try:
+        response = requests.get(
+            OPEN_METEO_GEOCODING_URL,
+            params={
+                "name": cleaned,
+                "count": 5,
+                "language": "en",
+                "format": "json",
+            },
+            timeout=WEB_SEARCH_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return None
+
+    results = payload.get("results") or []
+    if not results:
+        return None
+
+    normalized_cleaned = cleaned.lower()
+    best = max(
+        results,
+        key=lambda row: (
+            str(row.get("name", "")).strip().lower() == normalized_cleaned,
+            row.get("population") or 0,
+        ),
+    )
+    if not isinstance(best, dict):
+        return None
+    return best
+
+
+def _fetch_open_meteo_current(place: dict[str, Any], current_fields: list[str]) -> Optional[dict[str, Any]]:
+    latitude = place.get("latitude")
+    longitude = place.get("longitude")
+    if latitude is None or longitude is None:
+        return None
+
+    try:
+        response = requests.get(
+            OPEN_METEO_FORECAST_URL,
+            params={
+                "latitude": latitude,
+                "longitude": longitude,
+                "current": ",".join(current_fields),
+                "forecast_days": 1,
+                "timezone": "auto",
+            },
+            timeout=WEB_SEARCH_TIMEOUT_SEC,
+        )
+        response.raise_for_status()
+        payload = response.json()
+    except Exception:
+        return None
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("current"), dict):
+        return None
+    return payload
+
+
+def run_current_time_tool(query_or_location: str) -> str:
+    location = _extract_time_location(query_or_location) or _clean_location_text(query_or_location)
+    if not location:
+        return "Time lookup requires a city or location."
+
+    place = _geocode_location(location)
+    if not place:
+        return f"I couldn't find a reliable location match for '{location}'."
+
+    payload = _fetch_open_meteo_current(place, ["is_day"])
+    if not payload:
+        return f"I couldn't retrieve the current local time for {_format_location_name(place)}."
+
+    current_time = str(payload.get("current", {}).get("time", "")).strip()
+    if not current_time:
+        return f"I couldn't retrieve the current local time for {_format_location_name(place)}."
+
+    try:
+        parsed_time = datetime.fromisoformat(current_time)
+        formatted_time = parsed_time.strftime("%I:%M %p").lstrip("0")
+        formatted_date = parsed_time.strftime("%B %d, %Y")
+    except ValueError:
+        formatted_time = current_time
+        formatted_date = ""
+
+    date_suffix = f" on {formatted_date}" if formatted_date else ""
+    timezone = str(payload.get("timezone") or place.get("timezone") or "").strip()
+    timezone_suffix = f" ({timezone})" if timezone else ""
+    return (
+        f"Current local time in {_format_location_name(place)}: "
+        f"{formatted_time}{date_suffix}{timezone_suffix}. Source: Open-Meteo."
+    )
+
+
+def _weather_code_label(code: Any) -> str:
+    try:
+        return WEATHER_CODE_LABELS[int(code)]
+    except (TypeError, ValueError, KeyError):
+        return "Current conditions unavailable"
+
+
+def run_weather_tool(query_or_location: str) -> str:
+    location = _extract_weather_location(query_or_location) or _clean_location_text(query_or_location)
+    if not location:
+        return "Weather lookup requires a city or location."
+
+    place = _geocode_location(location)
+    if not place:
+        return f"I couldn't find a reliable location match for '{location}'."
+
+    payload = _fetch_open_meteo_current(
+        place,
+        [
+            "temperature_2m",
+            "apparent_temperature",
+            "relative_humidity_2m",
+            "weather_code",
+            "wind_speed_10m",
+        ],
+    )
+    if not payload:
+        return f"I couldn't retrieve the current weather for {_format_location_name(place)}."
+
+    current = payload.get("current", {})
+    units = payload.get("current_units", {})
+
+    summary_parts = [_weather_code_label(current.get("weather_code"))]
+
+    temperature = current.get("temperature_2m")
+    if temperature is not None:
+        summary_parts.append(f"{_format_number(temperature)}{units.get('temperature_2m', '°C')}")
+
+    apparent = current.get("apparent_temperature")
+    if apparent is not None:
+        summary_parts.append(f"feels like {_format_number(apparent)}{units.get('apparent_temperature', '°C')}")
+
+    humidity = current.get("relative_humidity_2m")
+    if humidity is not None:
+        summary_parts.append(f"humidity {_format_number(humidity)}{units.get('relative_humidity_2m', '%')}")
+
+    wind_speed = current.get("wind_speed_10m")
+    if wind_speed is not None:
+        summary_parts.append(f"wind {_format_number(wind_speed)}{units.get('wind_speed_10m', 'km/h')}")
+
+    return f"Current weather in {_format_location_name(place)}: {', '.join(summary_parts)}. Source: Open-Meteo."
 
 
 def _flatten_related_topics(items: list[dict[str, Any]]) -> list[dict[str, str]]:
@@ -244,8 +496,8 @@ def _relevance_score(query_terms: list[str], title: str, snippet: str, url: str)
 
 
 def _is_generic_web_query(query: str) -> bool:
-    q = re.sub(r"\s+", " ", (query or "").strip().lower())
-    return q in GENERIC_WEB_QUERIES
+    q = _normalize_space(query).lower()
+    return q in GENERIC_WEB_QUERIES or _is_tool_control_query(q)
 
 
 def _is_referential_query(query: str) -> bool:
@@ -253,13 +505,44 @@ def _is_referential_query(query: str) -> bool:
     return any(token in REFERENTIAL_TOKENS for token in tokens)
 
 
-def _extract_last_user_query(chat_history_context: str) -> str:
+def _extract_user_queries(chat_history_context: str) -> list[str]:
     if not chat_history_context:
-        return ""
-    candidates = re.findall(r"(?im)^user:\s*(.+)$", chat_history_context)
+        return []
+    return [candidate.strip() for candidate in re.findall(r"(?im)^user:\s*(.+)$", chat_history_context) if candidate.strip()]
+
+
+def _extract_last_user_query(chat_history_context: str) -> str:
+    candidates = _extract_user_queries(chat_history_context)
     if not candidates:
         return ""
-    return candidates[-1].strip()
+    return candidates[-1]
+
+
+def _is_tool_control_query(query: str) -> bool:
+    normalized = _normalize_space(query).lower()
+    if not normalized:
+        return False
+    if normalized in GENERIC_WEB_QUERIES:
+        return True
+    return any(re.match(pattern, normalized) for pattern in TOOL_CONTROL_PATTERNS)
+
+
+def _extract_last_substantive_user_query(chat_history_context: str) -> str:
+    for candidate in reversed(_extract_user_queries(chat_history_context)):
+        if not _is_tool_control_query(candidate):
+            return candidate
+    return ""
+
+
+def _resolve_tool_target_query(query: str, chat_history_context: str) -> str:
+    normalized_query = _normalize_space(query)
+    if not _is_tool_control_query(normalized_query):
+        return normalized_query
+
+    last_user = _extract_last_substantive_user_query(chat_history_context)
+    if last_user:
+        return last_user
+    return normalized_query
 
 
 def _resolve_web_query(tool_input: str, user_query: str, chat_history_context: str) -> str:
@@ -267,7 +550,7 @@ def _resolve_web_query(tool_input: str, user_query: str, chat_history_context: s
     if not _is_generic_web_query(query):
         return query
 
-    last_user = _extract_last_user_query(chat_history_context)
+    last_user = _extract_last_substantive_user_query(chat_history_context)
     if last_user and not _is_generic_web_query(last_user):
         return last_user
     return query
@@ -276,10 +559,38 @@ def _resolve_web_query(tool_input: str, user_query: str, chat_history_context: s
 def _query_candidates(cleaned_query: str) -> list[str]:
     candidates = [cleaned_query]
     lower_query = cleaned_query.lower()
+    time_location = _extract_time_location(cleaned_query)
+    weather_location = _extract_weather_location(cleaned_query)
+
+    if time_location:
+        candidates.extend(
+            [
+                f"current time in {time_location}",
+                f"{time_location} local time",
+                f"site:timeanddate.com {time_location} time",
+            ]
+        )
+    if weather_location:
+        candidates.extend(
+            [
+                f"current weather in {weather_location}",
+                f"{weather_location} weather forecast",
+                f"site:weather.com {weather_location} weather",
+            ]
+        )
     if "openai" in lower_query:
         candidates.append(f"site:openai.com {cleaned_query}")
         candidates.append(f"site:help.openai.com {cleaned_query}")
-    return candidates
+
+    deduped: list[str] = []
+    seen = set()
+    for candidate in candidates:
+        normalized = candidate.strip().lower()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(candidate)
+    return deduped
 
 
 def _search_via_ddgs(cleaned_query: str) -> list[dict[str, str]]:
@@ -455,6 +766,14 @@ def _heuristic_action(query: str) -> AgentAction:
     if expression and (any(hint in lower_q for hint in MATH_HINTS) or re.fullmatch(r"[\d\.\s\+\-\*\/\%\(\)\^]+", q)):
         return AgentAction(tool="calculator", tool_input=expression, reason="Detected arithmetic expression.")
 
+    time_location = _extract_time_location(q)
+    if time_location:
+        return AgentAction(tool="current_time", tool_input=time_location, reason="Detected current-time lookup.")
+
+    weather_location = _extract_weather_location(q)
+    if weather_location:
+        return AgentAction(tool="weather", tool_input=weather_location, reason="Detected weather lookup.")
+
     has_explicit_web_intent = any(hint in lower_q for hint in EXPLICIT_WEB_HINTS)
     has_recency_hint = any(hint in lower_q for hint in RECENCY_HINTS)
 
@@ -474,8 +793,11 @@ def _llm_planned_action(query: str, llm_instance, chat_history_context: str = ""
     planner_prompt = (
         "You are a tool router.\n"
         "Choose exactly one tool for the user query.\n"
-        "Allowed tools: none, calculator, web_search.\n"
-        "Use calculator only for arithmetic. Use web_search for latest/current/news/internet lookup.\n"
+        "Allowed tools: none, calculator, current_time, weather, web_search.\n"
+        "Use calculator only for arithmetic.\n"
+        "Use current_time for local time queries tied to a city or place.\n"
+        "Use weather for current weather queries tied to a city or place.\n"
+        "Use web_search for latest/current/news/internet lookup when the dedicated tools do not fit.\n"
         "Return strict JSON only with keys: tool, tool_input, reason.\n\n"
         f"Conversation history:\n{chat_history_context or '[none]'}\n\n"
         f"User query: {query}"
@@ -488,10 +810,14 @@ def _llm_planned_action(query: str, llm_instance, chat_history_context: str = ""
         tool = str(data.get("tool", "none")).strip().lower()
         tool_input = str(data.get("tool_input", "")).strip()
         reason = str(data.get("reason", "")).strip() or "LLM-selected tool."
-        if tool not in {"none", "calculator", "web_search"}:
+        if tool not in {"none", "calculator", "current_time", "weather", "web_search"}:
             return AgentAction(tool="none", tool_input="", reason="Planner returned unsupported tool.")
         if tool == "calculator":
             tool_input = tool_input or _extract_math_expression(query)
+        if tool == "current_time":
+            tool_input = tool_input or _extract_time_location(query)
+        if tool == "weather":
+            tool_input = tool_input or _extract_weather_location(query)
         if tool == "web_search":
             tool_input = tool_input or query
         return AgentAction(tool=tool, tool_input=tool_input, reason=reason)
@@ -500,14 +826,16 @@ def _llm_planned_action(query: str, llm_instance, chat_history_context: str = ""
 
 
 def choose_agent_action(query: str, llm_instance, chat_history_context: str = "") -> AgentAction:
-    if _is_referential_query(query) and not any(hint in (query or "").lower() for hint in EXPLICIT_WEB_HINTS):
+    effective_query = _resolve_tool_target_query(query, chat_history_context)
+
+    if _is_referential_query(effective_query) and not any(hint in (effective_query or "").lower() for hint in EXPLICIT_WEB_HINTS):
         return AgentAction(tool="none", tool_input="", reason="Referential query; avoid web tool over-trigger.")
 
-    heuristic = _heuristic_action(query)
+    heuristic = _heuristic_action(effective_query)
     if heuristic.tool != "none":
         return heuristic
 
-    planned = _llm_planned_action(query, llm_instance, chat_history_context=chat_history_context)
+    planned = _llm_planned_action(effective_query, llm_instance, chat_history_context=chat_history_context)
     if planned.tool != "none":
         return planned
 
@@ -515,7 +843,8 @@ def choose_agent_action(query: str, llm_instance, chat_history_context: str = ""
 
 
 def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "") -> Optional[dict[str, Any]]:
-    action = choose_agent_action(query, llm_instance, chat_history_context=chat_history_context)
+    resolved_query = _resolve_tool_target_query(query, chat_history_context)
+    action = choose_agent_action(resolved_query, llm_instance, chat_history_context=chat_history_context)
     if action.tool == "none":
         return None
 
@@ -523,19 +852,25 @@ def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "
     source_urls: list[str] = []
     if action.tool == "calculator":
         tool_result = run_calculator_tool(action.tool_input)
+    elif action.tool == "current_time":
+        tool_result = run_current_time_tool(action.tool_input or resolved_query)
+    elif action.tool == "weather":
+        tool_result = run_weather_tool(action.tool_input or resolved_query)
     elif action.tool == "web_search":
-        resolved_web_query = _resolve_web_query(action.tool_input, query, chat_history_context)
+        resolved_web_query = _resolve_web_query(action.tool_input, resolved_query, chat_history_context)
         tool_result, source_urls = run_web_search_tool(resolved_web_query)
     else:
         return None
 
     synthesis_prompt = (
         "You are a helpful assistant.\n"
+        "The latest user message may ask you to use tools on the prior question.\n"
         "Use the tool output below to answer the user's question accurately.\n"
         "If the tool output says it failed or has no results, be transparent.\n"
         "Keep the answer concise and practical.\n\n"
         f"Conversation history:\n{chat_history_context or '[none]'}\n\n"
-        f"User question:\n{query}\n\n"
+        f"Latest user message:\n{query}\n\n"
+        f"Resolved question to answer:\n{resolved_query}\n\n"
         f"Tool used: {action.tool}\n"
         f"Tool output:\n{tool_result}\n"
     )

@@ -30,6 +30,18 @@ MOONSHOT_MODELS = ["moonshot-v1-8k", "moonshot-v1-32k"]
 MOONSHOT_NVIDIA_MODELS = ["moonshotai/kimi-k2-thinking"]
 ROUTING_OPTIONS = ["Auto", "Chat only", "RAG only"]
 ROUTING_MODE_MAP = {"Auto": "auto", "Chat only": "chat_only", "RAG only": "rag_only"}
+TOOL_LABELS = {
+    "calculator": "Calculator",
+    "current_time": "Current Time",
+    "weather": "Weather",
+    "web_search": "Web Search",
+}
+AVAILABLE_TOOLS = [
+    "Current Time",
+    "Weather",
+    "Web Search",
+    "Calculator",
+]
 
 
 def build_http_session() -> requests.Session:
@@ -643,13 +655,26 @@ with st.sidebar:
         help="Auto chooses between chat and RAG. Chat only ignores docs. RAG only forces doc-grounded answers.",
     )
     routing_mode = ROUTING_MODE_MAP[routing_mode_label]
+    enable_tools = st.toggle(
+        "Enable Agent Tools",
+        value=True,
+        help="Used in chat mode for live lookups and calculations. RAG answers still come from your uploaded docs.",
+    )
 
     key_chip = "Connected" if api_key else "Missing"
     key_class = "ok" if api_key else "warn"
+    tools_chip = "On" if enable_tools else "Off"
+    tools_class = "ok" if enable_tools else "warn"
     st.markdown(
-        f'<div class="chip-row"><span class="chip {key_class}">API Key: {key_chip}</span></div>',
+        (
+            '<div class="chip-row">'
+            f'<span class="chip {key_class}">API Key: {key_chip}</span>'
+            f'<span class="chip {tools_class}">Tools: {tools_chip}</span>'
+            "</div>"
+        ),
         unsafe_allow_html=True,
     )
+    st.caption("Available tools: " + ", ".join(AVAILABLE_TOOLS))
 
     st.markdown("---")
     st.markdown("### Knowledge")
@@ -766,6 +791,7 @@ st.markdown(
         <span class="chip">Provider: {provider}</span>
         <span class="chip">Model: {selected_model}</span>
         <span class="chip">Routing: {routing_mode_label}</span>
+        <span class="chip {'ok' if enable_tools else 'warn'}">Tools: {'On' if enable_tools else 'Off'}</span>
         <span class="chip {mode_class}">{mode_text}</span>
     </div>
     """,
@@ -827,6 +853,7 @@ if user_prompt:
                 "vector_db_path": st.session_state.vector_db_path,
                 "is_nvidia_key": is_nvidia_key,
                 "routing_mode": routing_mode,
+                "enable_tools": enable_tools,
                 "chat_history": history_payload,
             }
             response = HTTP_SESSION.post(
@@ -841,7 +868,13 @@ if user_prompt:
                 bot_reply = result.get("response", "No response from agent.")
                 backend_metrics = result.get("metrics", {})
                 route_used = (result.get("route_used") or "").lower()
-                mode = "RAG" if route_used == "rag" else "Chat"
+                tool_used = str(backend_metrics.get("tool_used", "none")).strip().lower()
+                if route_used == "rag":
+                    mode = "RAG"
+                elif route_used == "chat_tools":
+                    mode = f"Chat + {TOOL_LABELS.get(tool_used, tool_used.replace('_', ' ').title())}"
+                else:
+                    mode = "Chat"
                 server_latency = backend_metrics.get("latency_ms", latency_ms)
                 input_tokens = backend_metrics.get("estimated_input_tokens", "-")
                 output_tokens = backend_metrics.get("estimated_output_tokens", "-")
