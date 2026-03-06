@@ -508,7 +508,9 @@ def _is_referential_query(query: str) -> bool:
 def _extract_user_queries(chat_history_context: str) -> list[str]:
     if not chat_history_context:
         return []
-    return [candidate.strip() for candidate in re.findall(r"(?im)^user:\s*(.+)$", chat_history_context) if candidate.strip()]
+    return [
+        candidate.strip() for candidate in re.findall(r"(?im)^user:\s*(.+)$", chat_history_context) if candidate.strip()
+    ]
 
 
 def _extract_last_user_query(chat_history_context: str) -> str:
@@ -828,7 +830,9 @@ def _llm_planned_action(query: str, llm_instance, chat_history_context: str = ""
 def choose_agent_action(query: str, llm_instance, chat_history_context: str = "") -> AgentAction:
     effective_query = _resolve_tool_target_query(query, chat_history_context)
 
-    if _is_referential_query(effective_query) and not any(hint in (effective_query or "").lower() for hint in EXPLICIT_WEB_HINTS):
+    if _is_referential_query(effective_query) and not any(
+        hint in (effective_query or "").lower() for hint in EXPLICIT_WEB_HINTS
+    ):
         return AgentAction(tool="none", tool_input="", reason="Referential query; avoid web tool over-trigger.")
 
     heuristic = _heuristic_action(effective_query)
