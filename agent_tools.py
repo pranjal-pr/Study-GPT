@@ -129,17 +129,52 @@ TOOL_CONTROL_PATTERNS = (
     r"^(?:please\s+)?(?:use|try|enable)\s+(?:the\s+)?(?:web\s+search(?:\s+tools?)?|search(?:\s+tools?)?|tools?|tool)\b.*$",
     r"^(?:please\s+)?(?:search|look up|lookup)\s+(?:the\s+web\s+)?(?:for\s+)?(?:it|that|this)\s*$",
 )
+TIME_INTENT_PATTERNS = (
+    r"\bcurrent\s+time\b",
+    r"\btime\s+(?:in|at|for|of)\b",
+    r"\bwhat(?:'s| is)\s+the\s+(?:current\s+)?time\b",
+)
+WEATHER_INTENT_PATTERNS = (
+    r"\bcurrent\s+weather\b",
+    r"\bweather\s+(?:in|at|for|of)\b",
+    r"\bforecast\s+(?:in|at|for|of)\b",
+    r"\btemperature\s+(?:in|at|for|of)\b",
+    r"\bwhat(?:'s| is)\s+the\s+(?:current\s+)?weather\b",
+)
 TIME_LOCATION_PATTERNS = (
-    r"\bcurrent\s+time\s+(?:in|at|for)\s+(?P<location>.+)$",
-    r"\btime\s+(?:in|at|for)\s+(?P<location>.+)$",
+    r"\bcurrent\s+time\s+(?:in|at|for|of)\s+(?P<location>.+)$",
+    r"\btime\s+(?:in|at|for|of)\s+(?P<location>.+)$",
     r"^(?P<location>.+?)\s+time$",
 )
 WEATHER_LOCATION_PATTERNS = (
-    r"\b(?:current\s+)?weather\s+(?:in|at|for)\s+(?P<location>.+)$",
-    r"\bforecast\s+(?:in|at|for)\s+(?P<location>.+)$",
-    r"\btemperature\s+(?:in|at|for)\s+(?P<location>.+)$",
+    r"\b(?:current\s+)?weather\s+(?:in|at|for|of)\s+(?P<location>.+)$",
+    r"\bforecast\s+(?:in|at|for|of)\s+(?P<location>.+)$",
+    r"\btemperature\s+(?:in|at|for|of)\s+(?P<location>.+)$",
     r"^(?P<location>.+?)\s+weather$",
 )
+LOCATION_NOISE_TOKENS = {
+    "ask",
+    "can",
+    "city",
+    "current",
+    "forecast",
+    "give",
+    "hello",
+    "hey",
+    "hi",
+    "how",
+    "me",
+    "please",
+    "show",
+    "tell",
+    "temperature",
+    "time",
+    "weather",
+    "what",
+    "whats",
+    "where",
+    "you",
+}
 WEATHER_CODE_LABELS = {
     0: "Clear sky",
     1: "Mainly clear",
@@ -190,6 +225,13 @@ def _clean_location_text(text: str) -> str:
     return _normalize_space(cleaned).strip(" -")
 
 
+def _is_plausible_location_text(text: str) -> bool:
+    tokens = _tokenize(text)
+    if not tokens:
+        return False
+    return not any(token in LOCATION_NOISE_TOKENS for token in tokens)
+
+
 def _extract_location_from_patterns(query: str, patterns: tuple[str, ...]) -> str:
     text = _normalize_space(query)
     if not text:
@@ -200,7 +242,7 @@ def _extract_location_from_patterns(query: str, patterns: tuple[str, ...]) -> st
         if not match:
             continue
         location = _clean_location_text(match.group("location"))
-        if location:
+        if location and _is_plausible_location_text(location):
             return location
     return ""
 
@@ -211,6 +253,27 @@ def _extract_time_location(query: str) -> str:
 
 def _extract_weather_location(query: str) -> str:
     return _extract_location_from_patterns(query, WEATHER_LOCATION_PATTERNS)
+
+
+def _has_time_intent(query: str) -> bool:
+    normalized = _normalize_space(query).lower()
+    return any(re.search(pattern, normalized) for pattern in TIME_INTENT_PATTERNS)
+
+
+def _has_weather_intent(query: str) -> bool:
+    normalized = _normalize_space(query).lower()
+    return any(re.search(pattern, normalized) for pattern in WEATHER_INTENT_PATTERNS)
+
+
+def _resolve_location_input(query_or_location: str, extractor) -> str:
+    location = extractor(query_or_location)
+    if location:
+        return location
+
+    cleaned = _clean_location_text(query_or_location)
+    if _is_plausible_location_text(cleaned):
+        return cleaned
+    return ""
 
 
 def _extract_math_expression(query: str) -> str:
@@ -352,7 +415,7 @@ def _fetch_open_meteo_current(place: dict[str, Any], current_fields: list[str]) 
 
 
 def run_current_time_tool(query_or_location: str) -> str:
-    location = _extract_time_location(query_or_location) or _clean_location_text(query_or_location)
+    location = _resolve_location_input(query_or_location, _extract_time_location)
     if not location:
         return "Time lookup requires a city or location."
 
@@ -393,7 +456,7 @@ def _weather_code_label(code: Any) -> str:
 
 
 def run_weather_tool(query_or_location: str) -> str:
-    location = _extract_weather_location(query_or_location) or _clean_location_text(query_or_location)
+    location = _resolve_location_input(query_or_location, _extract_weather_location)
     if not location:
         return "Weather lookup requires a city or location."
 
@@ -768,13 +831,19 @@ def _heuristic_action(query: str) -> AgentAction:
     if expression and (any(hint in lower_q for hint in MATH_HINTS) or re.fullmatch(r"[\d\.\s\+\-\*\/\%\(\)\^]+", q)):
         return AgentAction(tool="calculator", tool_input=expression, reason="Detected arithmetic expression.")
 
-    time_location = _extract_time_location(q)
-    if time_location:
-        return AgentAction(tool="current_time", tool_input=time_location, reason="Detected current-time lookup.")
+    if _has_time_intent(q):
+        return AgentAction(
+            tool="current_time",
+            tool_input=_extract_time_location(q),
+            reason="Detected current-time lookup.",
+        )
 
-    weather_location = _extract_weather_location(q)
-    if weather_location:
-        return AgentAction(tool="weather", tool_input=weather_location, reason="Detected weather lookup.")
+    if _has_weather_intent(q):
+        return AgentAction(
+            tool="weather",
+            tool_input=_extract_weather_location(q),
+            reason="Detected weather lookup.",
+        )
 
     has_explicit_web_intent = any(hint in lower_q for hint in EXPLICIT_WEB_HINTS)
     has_recency_hint = any(hint in lower_q for hint in RECENCY_HINTS)

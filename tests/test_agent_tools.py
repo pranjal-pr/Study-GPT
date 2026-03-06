@@ -55,6 +55,45 @@ def test_choose_agent_action_detects_weather_intent():
     assert action.tool_input.lower() == "jaipur"
 
 
+def test_choose_agent_action_detects_weather_of_intent():
+    class DummyLLM:
+        def invoke(self, _prompt):
+            class DummyResponse:
+                content = '{"tool":"none","tool_input":"","reason":"none"}'
+
+            return DummyResponse()
+
+    action = agent_tools.choose_agent_action("what is the current weather of jaipur", DummyLLM())
+    assert action.tool == "weather"
+    assert action.tool_input.lower() == "jaipur"
+
+
+def test_choose_agent_action_current_time_without_location_keeps_empty_tool_input():
+    class DummyLLM:
+        def invoke(self, _prompt):
+            class DummyResponse:
+                content = '{"tool":"none","tool_input":"","reason":"none"}'
+
+            return DummyResponse()
+
+    action = agent_tools.choose_agent_action("hello whats the current time", DummyLLM())
+    assert action.tool == "current_time"
+    assert action.tool_input == ""
+
+
+def test_choose_agent_action_keeps_real_location_with_leading_article():
+    class DummyLLM:
+        def invoke(self, _prompt):
+            class DummyResponse:
+                content = '{"tool":"none","tool_input":"","reason":"none"}'
+
+            return DummyResponse()
+
+    action = agent_tools.choose_agent_action("what is the current weather in the hague", DummyLLM())
+    assert action.tool == "weather"
+    assert action.tool_input.lower() == "the hague"
+
+
 def test_relevance_scoring_prefers_matching_result():
     terms = agent_tools._query_terms("best openai llm model")
     good = agent_tools._relevance_score(
@@ -169,6 +208,11 @@ def test_run_current_time_tool_formats_open_meteo_response(monkeypatch):
     assert "Asia/Kolkata" in result
 
 
+def test_run_current_time_tool_without_location_requests_location():
+    result = agent_tools.run_current_time_tool("hello whats the current time")
+    assert result == "Time lookup requires a city or location."
+
+
 def test_run_weather_tool_formats_open_meteo_response(monkeypatch):
     class DummyResponse:
         def __init__(self, payload):
@@ -224,6 +268,11 @@ def test_run_weather_tool_formats_open_meteo_response(monkeypatch):
     assert "Clear sky" in result
     assert "31.2°C" in result
     assert "humidity 19%" in result
+
+
+def test_run_weather_tool_without_location_requests_location():
+    result = agent_tools.run_weather_tool("what is the current weather")
+    assert result == "Weather lookup requires a city or location."
 
 
 def test_run_agent_with_tools_reuses_previous_question_for_tool_command(monkeypatch):
