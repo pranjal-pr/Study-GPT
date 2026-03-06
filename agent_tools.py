@@ -46,7 +46,17 @@ COINGECKO_SIMPLE_PRICE_URL = os.getenv(
     "https://api.coingecko.com/api/v3/simple/price",
 )
 COINBASE_SPOT_PRICE_URL = os.getenv("COINBASE_SPOT_PRICE_URL", "https://api.coinbase.com/v2/prices/{symbol}-USD/spot")
+YAHOO_SEARCH_URL = os.getenv("YAHOO_SEARCH_URL", "https://search.yahoo.com/search")
+JINA_MIRROR_PREFIX = os.getenv("JINA_MIRROR_PREFIX", "https://r.jina.ai/http://")
 DEFAULT_HTTP_HEADERS = {"User-Agent": "ShinzoGPT/1.0 (+https://huggingface.co/spaces/shinzobolte/ShinzoGPT)"}
+SEARCH_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/123.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 SEARCH_HINTS = (
     "search",
@@ -990,7 +1000,7 @@ def _search_via_html_ddg(cleaned_query: str) -> list[dict[str, str]]:
         response = requests.get(
             "https://html.duckduckgo.com/html/",
             params={"q": cleaned_query},
-            headers=DEFAULT_HTTP_HEADERS,
+            headers=SEARCH_HTTP_HEADERS,
             timeout=WEB_SEARCH_TIMEOUT_SEC,
         )
         response.raise_for_status()
@@ -1049,6 +1059,156 @@ def _search_via_instant_api(cleaned_query: str) -> list[dict[str, str]]:
     return rows
 
 
+def _decode_yahoo_redirect_url(raw_url: str) -> str:
+    unescaped = html.unescape(raw_url or "").strip()
+    if not unescaped:
+        return ""
+
+    parsed = urlparse(unescaped)
+    if "search.yahoo.com" not in parsed.netloc and "r.search.yahoo.com" not in parsed.netloc:
+        return unescaped
+
+    ru_match = re.search(r"/RU=([^/]+)/", parsed.path, flags=re.IGNORECASE)
+    if ru_match:
+        return unquote(ru_match.group(1))
+
+    ru = parse_qs(parsed.query).get("RU", [""])[0]
+    return unquote(ru) if ru else unescaped
+
+
+def _search_via_yahoo_html(cleaned_query: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    query_candidates = _query_candidates(cleaned_query)
+    max_results = max(WEB_SEARCH_MAX_RESULTS * WEB_SEARCH_CANDIDATE_FACTOR, WEB_SEARCH_MAX_RESULTS)
+
+    result_pattern = re.compile(r'<li><div class="dd lst algo.*?</li>', flags=re.IGNORECASE | re.DOTALL)
+    title_pattern = re.compile(
+        r'<a[^>]+href="([^"]+)"[^>]*>.*?<h3[^>]*>.*?<span[^>]*>(.*?)</span>.*?</h3>',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    snippet_pattern = re.compile(
+        r'<div class="compText[^>]*>\s*<p[^>]*>(.*?)</p>',
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
+    for candidate in query_candidates:
+        try:
+            response = requests.get(
+                YAHOO_SEARCH_URL,
+                params={"p": candidate},
+                headers=SEARCH_HTTP_HEADERS,
+                timeout=WEB_SEARCH_TIMEOUT_SEC,
+            )
+            response.raise_for_status()
+            page = response.text
+        except Exception:
+            continue
+
+        for block in result_pattern.findall(page):
+            title_match = title_pattern.search(block)
+            if not title_match:
+                continue
+
+            url = _decode_yahoo_redirect_url(title_match.group(1))
+            if not url or "search.yahoo.com/search" in url:
+                continue
+
+            title = _normalize_space(re.sub(r"<.*?>", "", html.unescape(title_match.group(2))))
+            snippet_match = snippet_pattern.search(block)
+            snippet = ""
+            if snippet_match:
+                snippet = _normalize_space(re.sub(r"<.*?>", "", html.unescape(snippet_match.group(1))))
+
+            if not (title or snippet or url):
+                continue
+
+            rows.append({"title": title, "snippet": snippet, "url": url})
+            if len(rows) >= max_results:
+                return rows
+
+    return rows
+
+
+def _parse_markdown_link_line(line: str) -> tuple[str, str] | None:
+    match = re.fullmatch(r"\[([^\]]+)\]\((https?://[^\)]+)\)", line.strip())
+    if not match:
+        return None
+    return match.group(1).strip(), match.group(2).strip()
+
+
+def _search_via_jina_mirror(cleaned_query: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    query_candidates = [cleaned_query]
+    for candidate in _query_candidates(cleaned_query):
+        if candidate.strip().lower() == cleaned_query.lower():
+            continue
+        query_candidates.append(candidate)
+        if len(query_candidates) >= 3:
+            break
+    max_results = max(WEB_SEARCH_MAX_RESULTS * WEB_SEARCH_CANDIDATE_FACTOR, WEB_SEARCH_MAX_RESULTS)
+
+    for candidate in query_candidates:
+        mirrored_url = (
+            f"{JINA_MIRROR_PREFIX}https://html.duckduckgo.com/html/?q={requests.utils.quote(candidate, safe='')}"
+        )
+        try:
+            response = requests.get(
+                mirrored_url,
+                headers=SEARCH_HTTP_HEADERS,
+                timeout=max(WEB_SEARCH_TIMEOUT_SEC, 20),
+            )
+            response.raise_for_status()
+            markdown = response.text
+        except Exception:
+            continue
+
+        content = markdown.split("Markdown Content:\n", 1)[-1]
+        lines = [line.strip() for line in content.splitlines()]
+
+        for index, line in enumerate(lines):
+            parsed_link = _parse_markdown_link_line(line)
+            if not parsed_link:
+                continue
+
+            title, raw_url = parsed_link
+            if not title or title.lower() == "duckduckgo":
+                continue
+
+            next_line = lines[index + 1] if index + 1 < len(lines) else ""
+            if not re.fullmatch(r"-{10,}", next_line):
+                continue
+
+            url = _decode_ddg_html_url(raw_url)
+            if not url:
+                continue
+            parsed_url = urlparse(url)
+            lower_path = parsed_url.path.lower()
+            if lower_path.endswith((".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico")):
+                continue
+
+            snippet = ""
+            for look_ahead in lines[index + 2 : index + 8]:
+                parsed_snippet = _parse_markdown_link_line(look_ahead)
+                if not parsed_snippet:
+                    continue
+                snippet_text, snippet_url = parsed_snippet
+                if snippet_text.startswith("!"):
+                    continue
+                if _decode_ddg_html_url(snippet_url) != url:
+                    continue
+                snippet = _normalize_space(snippet_text.replace("**", ""))
+                break
+
+            rows.append({"title": _normalize_space(title), "snippet": snippet, "url": url})
+            if len(rows) >= max_results:
+                return rows
+
+        if rows:
+            return rows
+
+    return rows
+
+
 def _rank_search_results(query: str, rows: list[dict[str, str]]) -> list[dict[str, str]]:
     query_terms = _query_terms(query)
     scored_rows: list[tuple[float, dict[str, str]]] = []
@@ -1095,12 +1255,15 @@ def run_web_search_tool(query: str) -> tuple[str, list[str]]:
 
     ddgs_rows = _search_via_ddgs(cleaned)
     html_rows = _search_via_html_ddg(cleaned) if not ddgs_rows else []
-    fallback_rows = _search_via_instant_api(cleaned) if not (ddgs_rows or html_rows) else []
-    ranked_rows = _rank_search_results(cleaned, ddgs_rows or html_rows or fallback_rows)
+    jina_rows = _search_via_jina_mirror(cleaned) if not (ddgs_rows or html_rows) else []
+    yahoo_rows = _search_via_yahoo_html(cleaned) if not (ddgs_rows or html_rows or jina_rows) else []
+    fallback_rows = _search_via_instant_api(cleaned) if not (ddgs_rows or html_rows or jina_rows or yahoo_rows) else []
+    candidate_rows = ddgs_rows or html_rows or jina_rows or yahoo_rows or fallback_rows
+    ranked_rows = _rank_search_results(cleaned, candidate_rows)
     if not ranked_rows and ddgs_rows and html_rows:
         ranked_rows = _rank_search_results(cleaned, html_rows)
-    if not ranked_rows and (ddgs_rows or html_rows):
-        ranked_rows = (ddgs_rows or html_rows)[:WEB_SEARCH_MAX_RESULTS]
+    if not ranked_rows and candidate_rows:
+        ranked_rows = candidate_rows[:WEB_SEARCH_MAX_RESULTS]
 
     if not ranked_rows:
         return ("No high-confidence web results were returned for that query.", [])

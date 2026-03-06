@@ -454,6 +454,67 @@ def test_run_agent_with_tools_reuses_previous_question_for_tool_command(monkeypa
     assert response["tool_used"] == "current_time"
 
 
+def test_decode_yahoo_redirect_url_extracts_target():
+    raw_url = (
+        "https://r.search.yahoo.com/_ylt=test/RV=2/RE=1773994210/RO=10/"
+        "RU=https%3a%2f%2fdevelopers.openai.com%2fapi%2fdocs/RK=2/RS=test-"
+    )
+
+    assert agent_tools._decode_yahoo_redirect_url(raw_url) == "https://developers.openai.com/api/docs"
+
+
+def test_run_web_search_tool_falls_back_to_jina_mirror(monkeypatch):
+    monkeypatch.setattr(agent_tools, "_search_via_ddgs", lambda _query: [])
+    monkeypatch.setattr(agent_tools, "_search_via_html_ddg", lambda _query: [])
+    monkeypatch.setattr(
+        agent_tools,
+        "_search_via_jina_mirror",
+        lambda _query: [
+            {
+                "title": "OpenAI API Platform Documentation",
+                "snippet": "Explore guides, API docs, and examples for the OpenAI API.",
+                "url": "https://developers.openai.com/api/docs",
+            }
+        ],
+    )
+    monkeypatch.setattr(agent_tools, "_search_via_yahoo_html", lambda _query: [])
+    monkeypatch.setattr(agent_tools, "_search_via_instant_api", lambda _query: [])
+
+    summary, urls = agent_tools.run_web_search_tool("latest OpenAI API docs")
+
+    assert "OpenAI API Platform Documentation" in summary
+    assert urls == ["https://developers.openai.com/api/docs"]
+
+
+def test_search_via_jina_mirror_parses_duckduckgo_markdown(monkeypatch):
+    class DummyResponse:
+        text = (
+            "Title: latest OpenAI API docs at DuckDuckGo\n\n"
+            "Markdown Content:\n"
+            "latest OpenAI API docs at DuckDuckGo\n"
+            "===============\n"
+            "[OpenAI API Platform Documentation](https://duckduckgo.com/l/?uddg=https%3A%2F%2Fdevelopers.openai.com%2Fapi%2Fdocs)\n"
+            "-------------------------\n"
+            "[Explore guides, **API** docs, and examples for the **OpenAI** API.](https://duckduckgo.com/l/?uddg=https%3A%2F%2Fdevelopers.openai.com%2Fapi%2Fdocs)\n"
+        )
+
+        def raise_for_status(self):
+            return None
+
+    monkeypatch.setattr(agent_tools.requests, "get", lambda *args, **kwargs: DummyResponse())
+    monkeypatch.setattr(agent_tools, "_query_candidates", lambda _query: ["latest OpenAI API docs"])
+
+    rows = agent_tools._search_via_jina_mirror("latest OpenAI API docs")
+
+    assert rows == [
+        {
+            "title": "OpenAI API Platform Documentation",
+            "snippet": "Explore guides, API docs, and examples for the OpenAI API.",
+            "url": "https://developers.openai.com/api/docs",
+        }
+    ]
+
+
 def test_query_candidates_include_openai_official_sites():
     candidates = agent_tools._query_candidates("latest best model from openai")
     assert any("site:openai.com" in candidate for candidate in candidates)
