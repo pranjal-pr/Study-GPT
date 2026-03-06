@@ -6,26 +6,40 @@ import time
 from collections import defaultdict, deque
 from typing import Any, Dict, List
 
+from dotenv import load_dotenv
+
+load_dotenv()
+
 LOGGER_NAME = "shinzogpt"
-DEFAULT_INPUT_COST_PER_1K = float(os.getenv("DEFAULT_INPUT_COST_PER_1K_TOKENS", "0.00059"))
-DEFAULT_OUTPUT_COST_PER_1K = float(os.getenv("DEFAULT_OUTPUT_COST_PER_1K_TOKENS", "0.00079"))
+KNOWN_MODEL_PRICING_USD_PER_1K = {
+    "llama-3.3-70b-versatile": {"input_per_1k": 0.00059, "output_per_1k": 0.00079},
+    "llama-3.1-8b-instant": {"input_per_1k": 0.00005, "output_per_1k": 0.00008},
+}
+DEFAULT_INPUT_COST_PER_1K = float(os.getenv("DEFAULT_INPUT_COST_PER_1K_TOKENS", "0"))
+DEFAULT_OUTPUT_COST_PER_1K = float(os.getenv("DEFAULT_OUTPUT_COST_PER_1K_TOKENS", "0"))
+USE_GLOBAL_DEFAULT_MODEL_PRICING = os.getenv("USE_GLOBAL_DEFAULT_MODEL_PRICING", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 _MODEL_PRICING_OVERRIDES_ENV = os.getenv(
     "MODEL_PRICING_OVERRIDES_JSON",
-    (
-        '{"llama-3.3-70b-versatile":{"input_per_1k":0.00059,"output_per_1k":0.00079},'
-        '"llama-3.1-8b-instant":{"input_per_1k":0.00005,"output_per_1k":0.00008}}'
-    ),
+    "{}",
 )
 
 
 def _parse_model_pricing_overrides() -> Dict[str, Dict[str, float]]:
+    pricing = dict(KNOWN_MODEL_PRICING_USD_PER_1K)
     try:
         parsed = json.loads(_MODEL_PRICING_OVERRIDES_ENV)
         if isinstance(parsed, dict):
-            return parsed
+            for model, costs in parsed.items():
+                if isinstance(costs, dict):
+                    pricing[model] = costs
     except json.JSONDecodeError:
         pass
-    return {}
+    return pricing
 
 
 MODEL_PRICING_OVERRIDES = _parse_model_pricing_overrides()
@@ -62,17 +76,105 @@ def estimate_tokens(text: str) -> int:
     return max(1, (len(clean_text) + 3) // 4)
 
 
-def _resolve_model_pricing(model: str) -> tuple[float, float]:
-    override = MODEL_PRICING_OVERRIDES.get(model, {})
-    input_cost = float(override.get("input_per_1k", DEFAULT_INPUT_COST_PER_1K))
-    output_cost = float(override.get("output_per_1k", DEFAULT_OUTPUT_COST_PER_1K))
-    return input_cost, output_cost
+def _resolve_model_pricing(model: str) -> tuple[float | None, float | None]:
+    override = MODEL_PRICING_OVERRIDES.get(model)
+    if isinstance(override, dict):
+        input_cost = float(override.get("input_per_1k", 0))
+        output_cost = float(override.get("output_per_1k", 0))
+        if input_cost > 0 or output_cost > 0:
+            return input_cost, output_cost
+
+    if USE_GLOBAL_DEFAULT_MODEL_PRICING and (DEFAULT_INPUT_COST_PER_1K > 0 or DEFAULT_OUTPUT_COST_PER_1K > 0):
+        input_cost = DEFAULT_INPUT_COST_PER_1K
+        output_cost = DEFAULT_OUTPUT_COST_PER_1K
+        return input_cost, output_cost
+
+    return None, None
 
 
-def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float:
+def estimate_cost_usd(model: str, input_tokens: int, output_tokens: int) -> float | None:
     input_per_1k, output_per_1k = _resolve_model_pricing(model)
+    if input_per_1k is None or output_per_1k is None:
+        return None
     total = (input_tokens / 1000.0) * input_per_1k + (output_tokens / 1000.0) * output_per_1k
     return round(total, 8)
+
+
+def has_model_pricing(model: str) -> bool:
+    input_per_1k, output_per_1k = _resolve_model_pricing(model)
+    return input_per_1k is not None and output_per_1k is not None
+
+
+def format_usd(value: float | None) -> str:
+    if value is None:
+        return "n/a"
+    formatted = f"{value:.8f}".rstrip("0").rstrip(".")
+    if "." not in formatted:
+        formatted = f"{formatted}.00"
+    return formatted
+
+
+def _coerce_int(value: Any) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            return None
+
+
+def extract_usage_metrics(payload: Any) -> dict[str, int]:
+    candidates = []
+    usage_metadata = getattr(payload, "usage_metadata", None)
+    if isinstance(usage_metadata, dict):
+        candidates.append(usage_metadata)
+
+    response_metadata = getattr(payload, "response_metadata", None)
+    if isinstance(response_metadata, dict):
+        candidates.append(response_metadata)
+        token_usage = response_metadata.get("token_usage")
+        if isinstance(token_usage, dict):
+            candidates.append(token_usage)
+        usage = response_metadata.get("usage")
+        if isinstance(usage, dict):
+            candidates.append(usage)
+
+    additional_kwargs = getattr(payload, "additional_kwargs", None)
+    if isinstance(additional_kwargs, dict):
+        candidates.append(additional_kwargs)
+        usage = additional_kwargs.get("usage")
+        if isinstance(usage, dict):
+            candidates.append(usage)
+
+    if isinstance(payload, dict):
+        candidates.append(payload)
+
+    for candidate in candidates:
+        input_tokens = _coerce_int(candidate.get("input_tokens"))
+        output_tokens = _coerce_int(candidate.get("output_tokens"))
+        total_tokens = _coerce_int(candidate.get("total_tokens"))
+
+        if input_tokens is None:
+            input_tokens = _coerce_int(candidate.get("prompt_tokens"))
+        if output_tokens is None:
+            output_tokens = _coerce_int(candidate.get("completion_tokens"))
+
+        if input_tokens is None and output_tokens is not None and total_tokens is not None:
+            input_tokens = max(total_tokens - output_tokens, 0)
+        if output_tokens is None and input_tokens is not None and total_tokens is not None:
+            output_tokens = max(total_tokens - input_tokens, 0)
+
+        if input_tokens is not None or output_tokens is not None:
+            return {
+                "input_tokens": max(input_tokens or 0, 0),
+                "output_tokens": max(output_tokens or 0, 0),
+                "total_tokens": max(total_tokens or ((input_tokens or 0) + (output_tokens or 0)), 0),
+            }
+
+    return {}
 
 
 class MetricsStore:

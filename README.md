@@ -200,7 +200,12 @@ Operational controls:
 Cost estimation (optional):
 - `DEFAULT_INPUT_COST_PER_1K_TOKENS`
 - `DEFAULT_OUTPUT_COST_PER_1K_TOKENS`
+- `USE_GLOBAL_DEFAULT_MODEL_PRICING`
 - `MODEL_PRICING_OVERRIDES_JSON`
+
+Notes:
+- The backend prefers provider-reported token usage metadata when available, and only falls back to heuristic token estimates otherwise.
+- Per-model pricing is preferred. Leave global defaults at `0` unless you explicitly want a single fallback price applied to unknown models.
 
 ## Deploy (GitHub -> Hugging Face)
 

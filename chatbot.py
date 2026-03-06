@@ -34,11 +34,15 @@ TOOL_LABELS = {
     "calculator": "Calculator",
     "current_time": "Current Time",
     "weather": "Weather",
+    "asset_price": "Price",
+    "news": "News",
     "web_search": "Web Search",
 }
 AVAILABLE_TOOLS = [
     "Current Time",
     "Weather",
+    "Price",
+    "News",
     "Web Search",
     "Calculator",
 ]
@@ -119,6 +123,19 @@ def fetch_runtime_summary():
     except Exception:
         return None
     return None
+
+
+def format_usd_value(value) -> str:
+    if value in (None, "", "n/a"):
+        return "n/a"
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    formatted = f"{number:.8f}".rstrip("0").rstrip(".")
+    if "." not in formatted:
+        formatted = f"{formatted}.00"
+    return formatted
 
 
 def build_history_payload(chat_history: list[dict]) -> list[dict]:
@@ -764,7 +781,7 @@ with st.sidebar:
             left_m.metric("Requests", summary.get("requests_total", 0))
             right_m.metric("Errors", summary.get("errors_total", 0))
             left_m.metric("Avg Latency (ms)", summary.get("avg_request_latency_ms", 0))
-            right_m.metric("Est. Cost (USD)", summary.get("estimated_cost_usd_total", 0))
+            right_m.metric("Est. Cost (USD)", format_usd_value(summary.get("estimated_cost_usd_total", 0)))
         else:
             st.caption("Metrics unavailable.")
 
@@ -878,10 +895,11 @@ if user_prompt:
                 server_latency = backend_metrics.get("latency_ms", latency_ms)
                 input_tokens = backend_metrics.get("estimated_input_tokens", "-")
                 output_tokens = backend_metrics.get("estimated_output_tokens", "-")
-                cost_usd = backend_metrics.get("estimated_cost_usd", 0)
+                cost_usd = format_usd_value(backend_metrics.get("estimated_cost_usd"))
+                cost_label = f"${cost_usd}" if cost_usd != "n/a" else "n/a"
                 meta = (
                     f"{provider} | {selected_model} | {mode} | {server_latency} ms"
-                    f" | in:{input_tokens} tok | out:{output_tokens} tok | ${cost_usd}"
+                    f" | in:{input_tokens} tok | out:{output_tokens} tok | {cost_label}"
                 )
                 st.session_state.chat_history.append({"role": "assistant", "content": bot_reply, "meta": meta})
             else:

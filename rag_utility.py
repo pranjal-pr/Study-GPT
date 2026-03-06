@@ -7,6 +7,8 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
+from observability import extract_usage_metrics
+
 working_dir = os.path.dirname(os.path.abspath(__file__))
 TOP_K = 3
 
@@ -114,4 +116,7 @@ def answer_question_with_agent(
     )
 
     response = llm_instance.invoke(prompt)
-    return getattr(response, "content", str(response))
+    return {
+        "response": getattr(response, "content", str(response)),
+        "usage": extract_usage_metrics(response),
+    }

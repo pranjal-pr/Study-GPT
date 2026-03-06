@@ -55,6 +55,7 @@ def test_chat_success_returns_metrics(monkeypatch):
 
     class DummyResponse:
         content = "hello from model"
+        usage_metadata = {"input_tokens": 111, "output_tokens": 22, "total_tokens": 133}
 
     class DummyLLM:
         def invoke(self, _query):
@@ -74,7 +75,41 @@ def test_chat_success_returns_metrics(monkeypatch):
     assert "response" in body
     assert "metrics" in body
     assert "estimated_input_tokens" in body["metrics"]
+    assert body["metrics"]["estimated_input_tokens"] == 111
+    assert body["metrics"]["estimated_output_tokens"] == 22
+    assert body["metrics"]["token_usage_source"] == "provider"
+    assert body["metrics"]["pricing_configured"] is True
     assert body["route_used"] == "chat"
+
+
+def test_chat_marks_cost_unavailable_when_model_pricing_missing(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+
+    class DummyResponse:
+        content = "hello from model"
+        usage_metadata = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15}
+
+    class DummyLLM:
+        def invoke(self, _query):
+            return DummyResponse()
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+    original_models = api.PROVIDER_MODELS["Groq"].copy()
+    api.PROVIDER_MODELS["Groq"] = set(original_models) | {"test-unknown-model"}
+    try:
+        payload = {
+            "query": "hello",
+            "provider": "Groq",
+            "model": "test-unknown-model",
+            "api_key": "dummy",
+        }
+        response = client.post("/chat", json=payload)
+        assert response.status_code == 200
+        body = response.json()
+        assert body["metrics"]["estimated_cost_usd"] is None
+        assert body["metrics"]["pricing_configured"] is False
+    finally:
+        api.PROVIDER_MODELS["Groq"] = original_models
 
 
 def test_upload_rejects_non_pdf(monkeypatch):

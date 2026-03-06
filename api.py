@@ -6,12 +6,22 @@ import uuid
 from collections import defaultdict, deque
 from typing import Any, List, Optional, cast
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field
 
 from agent_tools import run_agent_with_tools
-from observability import estimate_cost_usd, estimate_tokens, log_event, metrics_store
+from observability import (
+    estimate_cost_usd,
+    estimate_tokens,
+    extract_usage_metrics,
+    has_model_pricing,
+    log_event,
+    metrics_store,
+)
 from rag_utility import answer_question_with_agent, process_documents_to_chroma_db
+
+load_dotenv()
 
 MAX_QUERY_CHARS = int(os.getenv("MAX_QUERY_CHARS", "2000"))
 MAX_UPLOAD_FILES = int(os.getenv("MAX_UPLOAD_FILES", "5"))
@@ -444,6 +454,8 @@ async def chat(request: Request, payload: ChatRequest):
         llm = get_llm(payload.provider, payload.model, api_key, payload.is_nvidia_key)
         history_context = _build_history_context(payload.chat_history)
         tool_used = "none"
+        usage_metrics: dict[str, int] = {}
+        token_usage_source = "estimated"
 
         if payload.routing_mode == "chat_only":
             use_rag = False
@@ -458,7 +470,7 @@ async def chat(request: Request, payload: ChatRequest):
 
         if use_rag:
             vector_db_path = payload.vector_db_path or ""
-            response = invoke_with_retries(
+            rag_result = invoke_with_retries(
                 lambda: answer_question_with_agent(
                     payload.query,
                     llm,
@@ -466,8 +478,12 @@ async def chat(request: Request, payload: ChatRequest):
                     chat_history_context=history_context,
                 )
             )
-            if response is None:
-                response = "I couldn't find relevant information for that in your uploaded documents."
+            if isinstance(rag_result, dict):
+                response = cast(str, rag_result.get("response", ""))
+                usage_metrics = cast(dict[str, int], rag_result.get("usage", {}))
+            else:
+                rag_response = cast(Optional[str], rag_result)
+                response = rag_response or "I couldn't find relevant information for that in your uploaded documents."
         else:
             tool_result = None
             if payload.enable_tools:
@@ -482,6 +498,7 @@ async def chat(request: Request, payload: ChatRequest):
             if tool_result and tool_result.get("response"):
                 response = cast(str, tool_result["response"])
                 tool_used = cast(str, tool_result.get("tool_used", "none"))
+                usage_metrics = cast(dict[str, int], tool_result.get("usage", {}))
             else:
                 if history_context:
                     prompt = (
@@ -493,12 +510,20 @@ async def chat(request: Request, payload: ChatRequest):
                     )
                 else:
                     prompt = payload.query
-                response = invoke_with_retries(lambda: llm.invoke(prompt).content)
+                raw_response = invoke_with_retries(lambda: llm.invoke(prompt))
+                response = cast(str, getattr(raw_response, "content", raw_response))
+                usage_metrics = extract_usage_metrics(raw_response)
 
         latency_ms = (time.perf_counter() - started) * 1000
-        input_tokens = estimate_tokens(payload.query) + estimate_tokens(history_context)
-        output_tokens = estimate_tokens(response)
+        if usage_metrics:
+            input_tokens = int(usage_metrics.get("input_tokens", 0))
+            output_tokens = int(usage_metrics.get("output_tokens", 0))
+            token_usage_source = "provider"
+        else:
+            input_tokens = estimate_tokens(payload.query) + estimate_tokens(history_context)
+            output_tokens = estimate_tokens(response)
         estimated_cost = estimate_cost_usd(payload.model, input_tokens, output_tokens)
+        pricing_configured = has_model_pricing(payload.model)
         route_used = "rag" if use_rag else ("chat_tools" if tool_used != "none" else "chat")
 
         metrics_store.record_chat(
@@ -507,7 +532,7 @@ async def chat(request: Request, payload: ChatRequest):
             latency_ms=latency_ms,
             input_tokens=input_tokens,
             output_tokens=output_tokens,
-            estimated_cost_usd=estimated_cost,
+            estimated_cost_usd=estimated_cost or 0.0,
         )
         log_event(
             "chat_completed",
@@ -517,6 +542,8 @@ async def chat(request: Request, payload: ChatRequest):
             estimated_input_tokens=input_tokens,
             estimated_output_tokens=output_tokens,
             estimated_cost_usd=estimated_cost,
+            token_usage_source=token_usage_source,
+            pricing_configured=pricing_configured,
             rag_used=use_rag,
             tool_used=tool_used,
             routing_mode=payload.routing_mode,
@@ -531,6 +558,8 @@ async def chat(request: Request, payload: ChatRequest):
                 "estimated_output_tokens": output_tokens,
                 "estimated_cost_usd": estimated_cost,
                 "tool_used": tool_used,
+                "token_usage_source": token_usage_source,
+                "pricing_configured": pricing_configured,
             },
         }
     except HTTPException:

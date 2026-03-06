@@ -11,6 +11,8 @@ from xml.etree import ElementTree as ET
 
 import requests
 
+from observability import extract_usage_metrics
+
 try:
     from ddgs import DDGS
 
@@ -1275,6 +1277,7 @@ def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "
             "tool_used": action.tool,
             "tool_input": action.tool_input,
             "tool_reason": action.reason,
+            "usage": {},
         }
 
     synthesis_prompt = (
@@ -1302,4 +1305,5 @@ def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "
         "tool_used": action.tool,
         "tool_input": action.tool_input,
         "tool_reason": action.reason,
+        "usage": extract_usage_metrics(final),
     }
