@@ -23,12 +23,11 @@ MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "12"))
 HTTP_CONNECT_TIMEOUT_SEC = float(os.getenv("HTTP_CONNECT_TIMEOUT_SEC", "6"))
 HTTP_READ_TIMEOUT_CHAT_SEC = float(os.getenv("HTTP_READ_TIMEOUT_CHAT_SEC", "180"))
 HTTP_READ_TIMEOUT_UPLOAD_SEC = float(os.getenv("HTTP_READ_TIMEOUT_UPLOAD_SEC", "360"))
-DEFAULT_ENABLE_TOOLS = os.getenv("ENABLE_TOOLS", "1").strip().lower() not in {"0", "false", "off"}
 
 PROVIDER_OPTIONS = ["Groq", "Moonshot Kimi"]
 GROQ_MODELS = ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
-MOONSHOT_MODELS = ["kimi-k2.5", "moonshot-v1-8k", "moonshot-v1-32k"]
-MOONSHOT_NVIDIA_MODELS = ["moonshotai/kimi-k2.5", "moonshotai/kimi-k2-thinking"]
+MOONSHOT_MODELS = ["moonshot-v1-8k", "moonshot-v1-32k"]
+MOONSHOT_NVIDIA_MODELS = ["moonshotai/kimi-k2-thinking"]
 ROUTING_OPTIONS = ["Auto", "Chat only", "RAG only"]
 ROUTING_MODE_MAP = {"Auto": "auto", "Chat only": "chat_only", "RAG only": "rag_only"}
 
@@ -97,21 +96,6 @@ def normalize_message_content(role: str, content: str) -> str:
     return text
 
 
-def format_cost_usd(value: float | int | None) -> str:
-    try:
-        cost = max(0.0, float(value or 0.0))
-    except (TypeError, ValueError):
-        return "0.000000"
-
-    if cost >= 1:
-        return f"{cost:,.2f}"
-    if cost >= 0.01:
-        return f"{cost:.4f}"
-    if cost >= 0.0001:
-        return f"{cost:.6f}"
-    return f"{cost:.8f}"
-
-
 def fetch_runtime_summary():
     try:
         response = HTTP_SESSION.get(
@@ -146,10 +130,12 @@ def render_message(role: str, content: str, meta: str | None = None, is_latest: 
     meta_html = f'<div class="sg-meta">{html.escape(meta)}</div>' if meta else ""
 
     message_html = (
+        f'<div class="sg-row {role_class}">'
         f'<div class="sg-msg {role_class}{latest_class}">'
         '<div class="sg-body">'
         f'<div class="sg-text">{safe_content}</div>'
         f"{meta_html}"
+        "</div>"
         "</div>"
         "</div>"
     )
@@ -483,13 +469,26 @@ st.markdown(
         outline: none !important;
     }
 
+    .sg-row {
+        display: flex;
+        width: 100%;
+        margin-bottom: 0.68rem;
+    }
+
+    .sg-row.user {
+        justify-content: flex-end;
+    }
+
+    .sg-row.assistant {
+        justify-content: flex-start;
+    }
+
     .sg-msg {
         display: block;
-        max-width: 90%;
+        max-width: min(82%, 760px);
         border: 1px solid var(--line);
         border-radius: 14px;
         padding: 0.62rem 0.82rem;
-        margin-bottom: 0.68rem;
         background: #151515;
         transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
     }
@@ -506,13 +505,11 @@ st.markdown(
     .sg-msg.user {
         border-color: rgba(255, 255, 255, 0.2);
         background: #1c1c1c;
-        margin-left: auto;
     }
 
     .sg-msg.assistant {
         border-color: rgba(255, 255, 255, 0.14);
         background: #141414;
-        margin-right: auto;
     }
 
     .sg-body {
@@ -646,11 +643,6 @@ with st.sidebar:
         help="Auto chooses between chat and RAG. Chat only ignores docs. RAG only forces doc-grounded answers.",
     )
     routing_mode = ROUTING_MODE_MAP[routing_mode_label]
-    enable_tools = st.toggle(
-        "Agent Tools",
-        value=DEFAULT_ENABLE_TOOLS,
-        help="Allow calculator and web-search tools during normal chat.",
-    )
 
     key_chip = "Connected" if api_key else "Missing"
     key_class = "ok" if api_key else "warn"
@@ -745,10 +737,9 @@ with st.sidebar:
         if summary:
             left_m, right_m = st.columns(2)
             left_m.metric("Requests", summary.get("requests_total", 0))
-            right_m.metric("Chats", summary.get("chat_total", 0))
-            left_m.metric("Errors", summary.get("errors_total", 0))
-            right_m.metric("Avg Latency (ms)", summary.get("avg_request_latency_ms", 0))
-            st.metric("Est. Cost (USD)", format_cost_usd(summary.get("estimated_cost_usd_total", 0)))
+            right_m.metric("Errors", summary.get("errors_total", 0))
+            left_m.metric("Avg Latency (ms)", summary.get("avg_request_latency_ms", 0))
+            right_m.metric("Est. Cost (USD)", summary.get("estimated_cost_usd_total", 0))
         else:
             st.caption("Metrics unavailable.")
 
@@ -775,7 +766,6 @@ st.markdown(
         <span class="chip">Provider: {provider}</span>
         <span class="chip">Model: {selected_model}</span>
         <span class="chip">Routing: {routing_mode_label}</span>
-        <span class="chip">Tools: {"On" if enable_tools else "Off"}</span>
         <span class="chip {mode_class}">{mode_text}</span>
     </div>
     """,
@@ -837,7 +827,6 @@ if user_prompt:
                 "vector_db_path": st.session_state.vector_db_path,
                 "is_nvidia_key": is_nvidia_key,
                 "routing_mode": routing_mode,
-                "enable_tools": enable_tools,
                 "chat_history": history_payload,
             }
             response = HTTP_SESSION.post(
@@ -852,38 +841,23 @@ if user_prompt:
                 bot_reply = result.get("response", "No response from agent.")
                 backend_metrics = result.get("metrics", {})
                 route_used = (result.get("route_used") or "").lower()
-                if route_used == "rag":
-                    mode = "RAG"
-                elif route_used == "chat_tools":
-                    mode = "Tool Agent"
-                else:
-                    mode = "Chat"
+                mode = "RAG" if route_used == "rag" else "Chat"
                 server_latency = backend_metrics.get("latency_ms", latency_ms)
                 input_tokens = backend_metrics.get("estimated_input_tokens", "-")
                 output_tokens = backend_metrics.get("estimated_output_tokens", "-")
                 cost_usd = backend_metrics.get("estimated_cost_usd", 0)
-                tool_used = (backend_metrics.get("tool_used") or "").strip()
-                formatted_cost = format_cost_usd(cost_usd)
                 meta = (
                     f"{provider} | {selected_model} | {mode} | {server_latency} ms"
-                    f" | in:{input_tokens} tok | out:{output_tokens} tok | ${formatted_cost}"
+                    f" | in:{input_tokens} tok | out:{output_tokens} tok | ${cost_usd}"
                 )
-                if tool_used and tool_used != "none":
-                    meta = f"{meta} | tool:{tool_used}"
                 st.session_state.chat_history.append({"role": "assistant", "content": bot_reply, "meta": meta})
             else:
                 st.session_state.chat_history.append(
                     {"role": "assistant", "content": f"Backend error: {parse_backend_error(response)}"}
                 )
-
-            # Keep sidebar runtime metrics in sync after every chat request.
-            st.session_state.runtime_summary = fetch_runtime_summary()
-            st.session_state.runtime_summary_ts = time.time()
     except Exception as e:
         st.session_state.chat_history.append(
             {"role": "assistant", "content": f"Connection error: {e}. Is FastAPI running?"}
         )
-        st.session_state.runtime_summary = fetch_runtime_summary()
-        st.session_state.runtime_summary_ts = time.time()
 
     st.rerun()

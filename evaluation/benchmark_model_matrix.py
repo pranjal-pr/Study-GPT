@@ -65,12 +65,6 @@ def build_model_matrix(env_values: Dict[str, str]) -> List[Dict[str, Any]]:
             [
                 {
                     "provider": "Moonshot Kimi",
-                    "model": "moonshotai/kimi-k2.5",
-                    "env_key": "MOONSHOT_API_KEY",
-                    "is_nvidia_key": True,
-                },
-                {
-                    "provider": "Moonshot Kimi",
                     "model": "moonshotai/kimi-k2-thinking",
                     "env_key": "MOONSHOT_API_KEY",
                     "is_nvidia_key": True,
@@ -80,12 +74,6 @@ def build_model_matrix(env_values: Dict[str, str]) -> List[Dict[str, Any]]:
     else:
         matrix.extend(
             [
-                {
-                    "provider": "Moonshot Kimi",
-                    "model": "kimi-k2.5",
-                    "env_key": "MOONSHOT_API_KEY",
-                    "is_nvidia_key": False,
-                },
                 {
                     "provider": "Moonshot Kimi",
                     "model": "moonshot-v1-8k",

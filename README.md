@@ -73,13 +73,13 @@ Measured at `2026-02-27T00:05:24Z` using:
 |---|---|---|---:|---:|---:|---:|---:|
 | Groq | llama-3.3-70b-versatile | ok | 1.00 | 1.00 | 1.00 | 1698.38 | 0.00% |
 | Groq | llama-3.1-8b-instant | ok | 1.00 | 1.00 | 0.80 | 891.13 | 0.00% |
-| Moonshot Kimi | moonshotai/kimi-k2.5 | failed | - | - | - | - | - |
+| Moonshot Kimi | moonshot-v1-8k | not run | - | - | - | - | - |
 | Moonshot Kimi | moonshotai/kimi-k2-thinking | ok | 1.00 | 1.00 | 1.00 | 16093.45 | 0.00% |
 
 Recommended default for recruiter walkthrough: **Groq `llama-3.3-70b-versatile`** (best quality-speed balance in this run).
 
-Moonshot failure reason in this run:
-- `moonshotai/kimi-k2.5`: intermittent upstream `504` timeout.
+Moonshot note for this snapshot:
+- `moonshot-v1-8k` was not included in the benchmark run.
 
 Reproducible reports:
 - [Model matrix report](./evaluation/model_matrix_latest.json)

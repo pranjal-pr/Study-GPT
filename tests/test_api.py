@@ -25,6 +25,19 @@ def test_chat_rejects_query_too_long(monkeypatch):
     assert "exceeds" in response.json()["detail"].lower()
 
 
+def test_chat_rejects_removed_moonshot_k2_5_model(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+    payload = {
+        "query": "hello",
+        "provider": "Moonshot Kimi",
+        "model": "kimi-k2.5",
+        "api_key": "dummy",
+    }
+    response = client.post("/chat", json=payload)
+    assert response.status_code == 400
+    assert "unsupported model" in response.json()["detail"].lower()
+
+
 def test_chat_rate_limited(monkeypatch):
     monkeypatch.setattr(api.rate_limiter, "is_allowed", lambda *_args, **_kwargs: (False, 10))
     payload = {

@@ -26,10 +26,8 @@ OBSERVABILITY_TOKEN = os.getenv("OBSERVABILITY_TOKEN", "")
 PROVIDER_MODELS = {
     "Groq": {"llama-3.3-70b-versatile", "llama-3.1-8b-instant"},
     "Moonshot Kimi": {
-        "kimi-k2.5",
         "moonshot-v1-8k",
         "moonshot-v1-32k",
-        "moonshotai/kimi-k2.5",
         "moonshotai/kimi-k2-thinking",
     },
 }
