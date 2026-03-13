@@ -358,6 +358,15 @@ st.markdown(
         backdrop-filter: blur(8px);
     }
 
+    [data-testid="stBottom"],
+    [data-testid="stBottom"] > div,
+    [data-testid="stBottomBlockContainer"],
+    [data-testid="stBottomBlockContainer"] > div {
+        background: transparent !important;
+        box-shadow: none !important;
+        border-top: none !important;
+    }
+
     [data-testid="stMainBlockContainer"] {
         max-width: 980px;
         padding-top: 2.3rem;
