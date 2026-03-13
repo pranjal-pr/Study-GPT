@@ -7,6 +7,7 @@ from pathlib import Path
 
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from dotenv import load_dotenv
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -185,6 +186,31 @@ def render_typing_indicator() -> None:
         </div>
         """,
         unsafe_allow_html=True,
+    )
+
+
+def render_chat_bottom_anchor() -> None:
+    st.markdown('<div id="chat-bottom-anchor" class="chat-bottom-anchor"></div>', unsafe_allow_html=True)
+
+
+def render_motion_bridge(auto_scroll: bool = False) -> None:
+    if not auto_scroll:
+        return
+
+    components.html(
+        """
+        <script>
+        const root = window.parent.document;
+        const anchor = root.getElementById("chat-bottom-anchor");
+        if (anchor) {
+            requestAnimationFrame(() => {
+                anchor.scrollIntoView({ behavior: "smooth", block: "end" });
+            });
+        }
+        </script>
+        """,
+        height=0,
+        width=0,
     )
 
 
@@ -405,6 +431,7 @@ st.markdown(
         text-align: center;
         font-size: 0.88rem;
         margin: 0.2rem 0 0.55rem;
+        animation: sg-fade-soft 320ms ease both;
     }
 
     .small-muted {
@@ -416,8 +443,12 @@ st.markdown(
         border: 1px solid var(--line);
         border-radius: 24px;
         padding: 0.42rem 0.46rem 0.12rem;
-        background: linear-gradient(180deg, rgba(24, 24, 28, 0.94), rgba(15, 15, 18, 0.94));
-        box-shadow: 0 10px 22px rgba(0, 0, 0, 0.24);
+        background:
+            radial-gradient(circle at top, rgba(255, 255, 255, 0.06), transparent 62%),
+            linear-gradient(180deg, rgba(24, 24, 28, 0.96), rgba(14, 14, 18, 0.97));
+        box-shadow:
+            0 10px 22px rgba(0, 0, 0, 0.24),
+            inset 0 1px 0 rgba(255, 255, 255, 0.05);
         margin: 0 auto 0.9rem;
         max-width: 900px;
         transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
@@ -426,7 +457,10 @@ st.markdown(
 
     [data-testid="stForm"]:focus-within {
         border-color: var(--line-strong);
-        box-shadow: 0 14px 26px rgba(0, 0, 0, 0.28);
+        box-shadow:
+            0 16px 30px rgba(0, 0, 0, 0.3),
+            0 0 0 1px rgba(255, 255, 255, 0.06);
+        transform: translateY(-1px);
     }
 
     [data-testid="stForm"] [data-testid="stHorizontalBlock"] {
@@ -453,8 +487,10 @@ st.markdown(
         border: 1px solid rgba(255, 255, 255, 0.14) !important;
         background: rgba(23, 24, 29, 0.96) !important;
         min-height: 46px !important;
+        padding-left: 1rem !important;
         color: #f0f2f6 !important;
         font-size: 1rem !important;
+        transition: border-color 180ms ease, background 180ms ease, box-shadow 180ms ease !important;
     }
 
     [data-testid="stTextInput"] > div > div > input:focus {
@@ -466,6 +502,24 @@ st.markdown(
         min-height: 46px;
         border-radius: 999px;
         font-weight: 600;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        background:
+            linear-gradient(180deg, rgba(36, 36, 38, 0.98), rgba(20, 20, 22, 0.98));
+        color: #f2f2f2;
+        box-shadow:
+            0 8px 18px rgba(0, 0, 0, 0.22),
+            inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+    }
+
+    .stFormSubmitButton > button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(255, 255, 255, 0.24);
+        background:
+            linear-gradient(180deg, rgba(42, 42, 44, 0.98), rgba(24, 24, 26, 0.98));
+        box-shadow:
+            0 12px 22px rgba(0, 0, 0, 0.28),
+            inset 0 1px 0 rgba(255, 255, 255, 0.07);
     }
 
     .stButton > button {
@@ -546,6 +600,7 @@ st.markdown(
         display: flex;
         width: 100%;
         margin-bottom: 0.68rem;
+        animation: sg-fade-soft 220ms ease both;
     }
 
     .sg-row.user {
@@ -563,16 +618,17 @@ st.markdown(
         border-radius: 14px;
         padding: 0.62rem 0.82rem;
         background: #151515;
-        transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease;
+        transition: border-color 180ms ease, box-shadow 180ms ease, background 180ms ease, transform 180ms ease;
     }
 
     .sg-msg:hover {
         border-color: var(--line-strong);
         box-shadow: 0 8px 18px rgba(0, 0, 0, 0.22);
+        transform: translateY(-1px);
     }
 
     .sg-msg.new {
-        animation: sg-fade-up 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        animation: sg-fade-up 320ms cubic-bezier(0.18, 0.88, 0.24, 1) both;
     }
 
     .sg-msg.user {
@@ -588,6 +644,9 @@ st.markdown(
     .sg-msg.typing {
         min-width: 78px;
         padding: 0.7rem 0.82rem;
+        box-shadow:
+            0 10px 22px rgba(0, 0, 0, 0.18),
+            inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
 
     .sg-body {
@@ -624,7 +683,14 @@ st.markdown(
         height: 8px;
         border-radius: 999px;
         background: rgba(241, 241, 241, 0.78);
+        box-shadow: 0 0 12px rgba(255, 255, 255, 0.14);
         animation: sg-bounce 1s infinite ease-in-out;
+    }
+
+    .chat-bottom-anchor {
+        width: 100%;
+        height: 1px;
+        margin-top: 0.2rem;
     }
 
     .typing-dots span:nth-child(2) {
@@ -659,11 +725,13 @@ st.markdown(
     @keyframes sg-fade-up {
         from {
             opacity: 0;
-            transform: translateY(8px);
+            transform: translateY(10px) scale(0.985);
+            filter: blur(2px);
         }
         to {
             opacity: 1;
             transform: translateY(0);
+            filter: blur(0);
         }
     }
 
@@ -686,6 +754,15 @@ st.markdown(
         40% {
             opacity: 1;
             transform: translateY(-3px);
+        }
+    }
+
+    @keyframes sg-fade-soft {
+        from {
+            opacity: 0;
+        }
+        to {
+            opacity: 1;
         }
     }
 
@@ -736,6 +813,8 @@ if "runtime_summary_ts" not in st.session_state:
     st.session_state.runtime_summary_ts = 0.0
 if "pending_prompt" not in st.session_state:
     st.session_state.pending_prompt = None
+if "should_scroll_to_bottom" not in st.session_state:
+    st.session_state.should_scroll_to_bottom = False
 
 logo_data_uri = load_logo_data_uri()
 logo_markup = (
@@ -844,6 +923,7 @@ with st.sidebar:
         st.session_state.vector_db_path = None
         st.session_state.uploaded_sources = []
         st.session_state.pending_prompt = None
+        st.session_state.should_scroll_to_bottom = False
         st.rerun()
 
     rag_active = bool(st.session_state.vector_db_path)
@@ -925,6 +1005,7 @@ with st.container():
         )
     if st.session_state.pending_prompt:
         render_typing_indicator()
+    render_chat_bottom_anchor()
 
 st.markdown('<div class="prompt-hint">What is on your mind?</div>', unsafe_allow_html=True)
 with st.form("prompt_form", clear_on_submit=True):
@@ -951,6 +1032,7 @@ if user_prompt:
 
     st.session_state.chat_history.append({"role": "user", "content": cleaned_prompt})
     st.session_state.pending_prompt = cleaned_prompt
+    st.session_state.should_scroll_to_bottom = True
     st.rerun()
 
 if st.session_state.pending_prompt:
@@ -961,6 +1043,7 @@ if st.session_state.pending_prompt:
             {"role": "assistant", "content": f"API key for {provider} is missing. Add it in Space secrets."}
         )
         st.session_state.pending_prompt = None
+        st.session_state.should_scroll_to_bottom = True
         st.rerun()
 
     try:
@@ -1016,5 +1099,9 @@ if st.session_state.pending_prompt:
         )
     finally:
         st.session_state.pending_prompt = None
+        st.session_state.should_scroll_to_bottom = True
 
     st.rerun()
+
+render_motion_bridge(auto_scroll=st.session_state.should_scroll_to_bottom)
+st.session_state.should_scroll_to_bottom = False
