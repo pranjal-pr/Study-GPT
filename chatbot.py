@@ -662,19 +662,14 @@ st.markdown(
     [data-testid="stChatInput"] {
         position: sticky;
         bottom: 0;
-        padding: 0.35rem 0 0.9rem;
-        margin-top: 0.55rem;
+        padding: 0.2rem 0 0.55rem;
+        margin-top: 0.5rem;
         z-index: 20;
-        background: linear-gradient(
-            180deg,
-            rgba(6, 6, 6, 0) 0%,
-            rgba(6, 6, 6, 0.16) 52%,
-            rgba(6, 6, 6, 0.52) 100%
-        );
+        background: transparent;
     }
 
     [data-testid="stChatInput"] > div {
-        width: min(100%, 940px);
+        width: min(100%, 880px);
         margin: 0 auto;
         min-height: 0;
         border: none !important;
@@ -688,21 +683,17 @@ st.markdown(
 
     [data-testid="stChatInput"] > div > div:last-child {
         display: flex;
-        align-items: flex-end;
-        gap: 0.58rem;
+        align-items: center;
+        gap: 0.42rem;
         width: 100%;
-        min-height: 70px;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
-        border-radius: 30px;
-        background:
-            radial-gradient(circle at top left, rgba(255, 255, 255, 0.07), transparent 54%),
-            linear-gradient(180deg, rgba(23, 24, 30, 0.96), rgba(13, 14, 18, 0.985));
-        box-shadow:
-            0 16px 32px rgba(0, 0, 0, 0.22),
-            inset 0 1px 0 rgba(255, 255, 255, 0.05);
-        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, background 180ms ease;
-        padding: 0.36rem 0.44rem 0.36rem 0.96rem;
-        backdrop-filter: blur(16px);
+        min-height: 58px;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 18px;
+        background: rgba(16, 18, 24, 0.96);
+        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
+        transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
+        padding: 0.28rem 0.34rem 0.28rem 0.78rem;
+        backdrop-filter: none;
     }
 
     [data-testid="stChatInput"] > div > div:last-child > div:first-child {
@@ -739,11 +730,10 @@ st.markdown(
     }
 
     [data-testid="stChatInput"] > div > div:last-child:focus-within {
-        border-color: rgba(255, 255, 255, 0.22) !important;
+        border-color: rgba(255, 255, 255, 0.18) !important;
         box-shadow:
             0 0 0 1px rgba(255, 255, 255, 0.06),
-            0 18px 36px rgba(0, 0, 0, 0.28) !important;
-        transform: translateY(-1px);
+            0 10px 24px rgba(0, 0, 0, 0.2) !important;
     }
 
     [data-testid="stChatInput"] textarea,
@@ -763,8 +753,8 @@ st.markdown(
 
     [data-testid="stChatInput"] textarea {
         width: 100% !important;
-        padding: 0.96rem 0.08rem 0.88rem 0 !important;
-        min-height: 30px !important;
+        padding: 0.72rem 0.08rem 0.68rem 0 !important;
+        min-height: 24px !important;
     }
 
     [data-testid="stChatInput"] textarea::placeholder,
@@ -774,27 +764,19 @@ st.markdown(
 
     [data-testid="stChatInput"] button {
         flex: 0 0 auto;
-        width: 44px !important;
-        height: 44px !important;
-        margin-bottom: 1px;
+        width: 40px !important;
+        height: 40px !important;
+        margin-bottom: 0;
         border-radius: 999px !important;
-        border: 1px solid rgba(255, 255, 255, 0.14) !important;
-        background:
-            linear-gradient(180deg, rgba(40, 40, 44, 0.98), rgba(22, 22, 26, 0.98)) !important;
-        box-shadow:
-            0 10px 22px rgba(0, 0, 0, 0.22),
-            inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
-        transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        background: rgba(28, 31, 38, 1) !important;
+        box-shadow: none !important;
+        transition: border-color 160ms ease, background 160ms ease !important;
     }
 
     [data-testid="stChatInput"] button:hover {
-        transform: translateY(-1px);
-        border-color: rgba(255, 255, 255, 0.24) !important;
-        background:
-            linear-gradient(180deg, rgba(46, 46, 50, 0.98), rgba(25, 25, 29, 0.98)) !important;
-        box-shadow:
-            0 14px 26px rgba(0, 0, 0, 0.28),
-            inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+        border-color: rgba(255, 255, 255, 0.18) !important;
+        background: rgba(34, 38, 46, 1) !important;
     }
 
     .sg-row {
