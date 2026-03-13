@@ -171,6 +171,23 @@ def render_message(role: str, content: str, meta: str | None = None, is_latest: 
     st.markdown(message_html, unsafe_allow_html=True)
 
 
+def render_typing_indicator() -> None:
+    st.markdown(
+        """
+        <div class="sg-row assistant">
+            <div class="sg-msg assistant typing new">
+                <div class="sg-body">
+                    <div class="typing-dots" aria-label="Assistant is thinking">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
 page_icon = str(LOGO_PATH) if LOGO_PATH.exists() else ":robot_face:"
 st.set_page_config(page_title="ShinzoGPT", page_icon=page_icon, layout="wide")
 
@@ -397,11 +414,38 @@ st.markdown(
 
     [data-testid="stForm"] {
         border: 1px solid var(--line);
-        border-radius: 22px;
-        padding: 0.72rem 0.78rem 0.38rem;
+        border-radius: 24px;
+        padding: 0.42rem 0.46rem 0.12rem;
         background: linear-gradient(180deg, rgba(24, 24, 28, 0.94), rgba(15, 15, 18, 0.94));
         box-shadow: 0 10px 22px rgba(0, 0, 0, 0.24);
-        margin-bottom: 1.1rem;
+        margin: 0 auto 0.9rem;
+        max-width: 900px;
+        transition: transform 220ms ease, box-shadow 220ms ease, border-color 220ms ease;
+        animation: sg-composer-in 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    }
+
+    [data-testid="stForm"]:focus-within {
+        border-color: var(--line-strong);
+        box-shadow: 0 14px 26px rgba(0, 0, 0, 0.28);
+    }
+
+    [data-testid="stForm"] [data-testid="stHorizontalBlock"] {
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    [data-testid="stForm"] [data-testid="column"] {
+        display: flex;
+        align-items: center;
+    }
+
+    [data-testid="stForm"] [data-testid="stTextInput"] {
+        margin-bottom: 0 !important;
+    }
+
+    [data-testid="stForm"] .stFormSubmitButton {
+        width: 100%;
+        margin-top: 0 !important;
     }
 
     [data-testid="stTextInput"] > div > div > input {
@@ -541,6 +585,11 @@ st.markdown(
         background: #141414;
     }
 
+    .sg-msg.typing {
+        min-width: 78px;
+        padding: 0.7rem 0.82rem;
+    }
+
     .sg-body {
         min-width: 0;
         margin: 0;
@@ -561,6 +610,29 @@ st.markdown(
         margin-top: 0.36rem;
         color: #9a9a9a;
         font-size: 0.77rem;
+    }
+
+    .typing-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.34rem;
+        min-height: 18px;
+    }
+
+    .typing-dots span {
+        width: 8px;
+        height: 8px;
+        border-radius: 999px;
+        background: rgba(241, 241, 241, 0.78);
+        animation: sg-bounce 1s infinite ease-in-out;
+    }
+
+    .typing-dots span:nth-child(2) {
+        animation-delay: 0.14s;
+    }
+
+    .typing-dots span:nth-child(3) {
+        animation-delay: 0.28s;
     }
 
     ::-webkit-scrollbar {
@@ -592,6 +664,28 @@ st.markdown(
         to {
             opacity: 1;
             transform: translateY(0);
+        }
+    }
+
+    @keyframes sg-composer-in {
+        from {
+            opacity: 0;
+            transform: translateY(-12px);
+        }
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @keyframes sg-bounce {
+        0%, 80%, 100% {
+            opacity: 0.4;
+            transform: translateY(0);
+        }
+        40% {
+            opacity: 1;
+            transform: translateY(-3px);
         }
     }
 
@@ -640,6 +734,8 @@ if "runtime_summary" not in st.session_state:
     st.session_state.runtime_summary = None
 if "runtime_summary_ts" not in st.session_state:
     st.session_state.runtime_summary_ts = 0.0
+if "pending_prompt" not in st.session_state:
+    st.session_state.pending_prompt = None
 
 logo_data_uri = load_logo_data_uri()
 logo_markup = (
@@ -747,6 +843,7 @@ with st.sidebar:
         st.session_state.chat_history = []
         st.session_state.vector_db_path = None
         st.session_state.uploaded_sources = []
+        st.session_state.pending_prompt = None
         st.rerun()
 
     rag_active = bool(st.session_state.vector_db_path)
@@ -826,6 +923,8 @@ with st.container():
             message.get("meta"),
             is_latest=(idx == history_len - 1),
         )
+    if st.session_state.pending_prompt:
+        render_typing_indicator()
 
 st.markdown('<div class="prompt-hint">What is on your mind?</div>', unsafe_allow_html=True)
 with st.form("prompt_form", clear_on_submit=True):
@@ -851,64 +950,71 @@ if user_prompt:
         st.stop()
 
     st.session_state.chat_history.append({"role": "user", "content": cleaned_prompt})
+    st.session_state.pending_prompt = cleaned_prompt
+    st.rerun()
+
+if st.session_state.pending_prompt:
+    pending_prompt = str(st.session_state.pending_prompt)
 
     if not api_key:
         st.session_state.chat_history.append(
             {"role": "assistant", "content": f"API key for {provider} is missing. Add it in Space secrets."}
         )
+        st.session_state.pending_prompt = None
         st.rerun()
 
     try:
-        with st.spinner("Thinking..."):
-            start = time.perf_counter()
-            history_payload = build_history_payload(st.session_state.chat_history[:-1])
-            payload = {
-                "query": cleaned_prompt,
-                "provider": provider,
-                "model": selected_model,
-                "api_key": api_key,
-                "vector_db_path": st.session_state.vector_db_path,
-                "is_nvidia_key": is_nvidia_key,
-                "routing_mode": routing_mode,
-                "enable_tools": enable_tools,
-                "chat_history": history_payload,
-            }
-            response = HTTP_SESSION.post(
-                f"{API_URL}/chat",
-                json=payload,
-                timeout=(HTTP_CONNECT_TIMEOUT_SEC, HTTP_READ_TIMEOUT_CHAT_SEC),
-            )
-            latency_ms = int((time.perf_counter() - start) * 1000)
+        start = time.perf_counter()
+        history_payload = build_history_payload(st.session_state.chat_history[:-1])
+        payload = {
+            "query": pending_prompt,
+            "provider": provider,
+            "model": selected_model,
+            "api_key": api_key,
+            "vector_db_path": st.session_state.vector_db_path,
+            "is_nvidia_key": is_nvidia_key,
+            "routing_mode": routing_mode,
+            "enable_tools": enable_tools,
+            "chat_history": history_payload,
+        }
+        response = HTTP_SESSION.post(
+            f"{API_URL}/chat",
+            json=payload,
+            timeout=(HTTP_CONNECT_TIMEOUT_SEC, HTTP_READ_TIMEOUT_CHAT_SEC),
+        )
+        latency_ms = int((time.perf_counter() - start) * 1000)
 
-            if response.status_code == 200:
-                result = response.json()
-                bot_reply = result.get("response", "No response from agent.")
-                backend_metrics = result.get("metrics", {})
-                route_used = (result.get("route_used") or "").lower()
-                tool_used = str(backend_metrics.get("tool_used", "none")).strip().lower()
-                if route_used == "rag":
-                    mode = "RAG"
-                elif route_used == "chat_tools":
-                    mode = f"Chat + {TOOL_LABELS.get(tool_used, tool_used.replace('_', ' ').title())}"
-                else:
-                    mode = "Chat"
-                server_latency = backend_metrics.get("latency_ms", latency_ms)
-                input_tokens = backend_metrics.get("estimated_input_tokens", "-")
-                output_tokens = backend_metrics.get("estimated_output_tokens", "-")
-                cost_usd = format_usd_value(backend_metrics.get("estimated_cost_usd"))
-                cost_label = f"${cost_usd}" if cost_usd != "n/a" else "n/a"
-                meta = (
-                    f"{provider} | {selected_model} | {mode} | {server_latency} ms"
-                    f" | in:{input_tokens} tok | out:{output_tokens} tok | {cost_label}"
-                )
-                st.session_state.chat_history.append({"role": "assistant", "content": bot_reply, "meta": meta})
+        if response.status_code == 200:
+            result = response.json()
+            bot_reply = result.get("response", "No response from agent.")
+            backend_metrics = result.get("metrics", {})
+            route_used = (result.get("route_used") or "").lower()
+            tool_used = str(backend_metrics.get("tool_used", "none")).strip().lower()
+            if route_used == "rag":
+                mode = "RAG"
+            elif route_used == "chat_tools":
+                mode = f"Chat + {TOOL_LABELS.get(tool_used, tool_used.replace('_', ' ').title())}"
             else:
-                st.session_state.chat_history.append(
-                    {"role": "assistant", "content": f"Backend error: {parse_backend_error(response)}"}
-                )
+                mode = "Chat"
+            server_latency = backend_metrics.get("latency_ms", latency_ms)
+            input_tokens = backend_metrics.get("estimated_input_tokens", "-")
+            output_tokens = backend_metrics.get("estimated_output_tokens", "-")
+            cost_usd = format_usd_value(backend_metrics.get("estimated_cost_usd"))
+            cost_label = f"${cost_usd}" if cost_usd != "n/a" else "n/a"
+            meta = (
+                f"{provider} | {selected_model} | {mode} | {server_latency} ms"
+                f" | in:{input_tokens} tok | out:{output_tokens} tok | {cost_label}"
+            )
+            st.session_state.chat_history.append({"role": "assistant", "content": bot_reply, "meta": meta})
+        else:
+            st.session_state.chat_history.append(
+                {"role": "assistant", "content": f"Backend error: {parse_backend_error(response)}"}
+            )
     except Exception as e:
         st.session_state.chat_history.append(
             {"role": "assistant", "content": f"Connection error: {e}. Is FastAPI running?"}
         )
+    finally:
+        st.session_state.pending_prompt = None
 
     st.rerun()
