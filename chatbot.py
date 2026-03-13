@@ -1,5 +1,6 @@
 import base64
 import html
+import json
 import os
 import re
 import time
@@ -152,16 +153,23 @@ def build_history_payload(chat_history: list[dict]) -> list[dict]:
     return history_payload
 
 
-def render_message(role: str, content: str, meta: str | None = None, is_latest: bool = False) -> None:
+def build_message_html(
+    role: str,
+    content: str,
+    meta: str | None = None,
+    is_latest: bool = False,
+    extra_classes: str = "",
+) -> str:
     role_class = "user" if role == "user" else "assistant"
     latest_class = " new" if is_latest else ""
+    extra_class = f" {extra_classes.strip()}" if extra_classes.strip() else ""
     clean_content = normalize_message_content(role, content)
     safe_content = html.escape(clean_content).replace("\n", "<br>")
     meta_html = f'<div class="sg-meta">{html.escape(meta)}</div>' if meta else ""
 
-    message_html = (
+    return (
         f'<div class="sg-row {role_class}">'
-        f'<div class="sg-msg {role_class}{latest_class}">'
+        f'<div class="sg-msg {role_class}{latest_class}{extra_class}">'
         '<div class="sg-body">'
         f'<div class="sg-text">{safe_content}</div>'
         f"{meta_html}"
@@ -169,7 +177,24 @@ def render_message(role: str, content: str, meta: str | None = None, is_latest: 
         "</div>"
         "</div>"
     )
-    st.markdown(message_html, unsafe_allow_html=True)
+
+
+def render_message(role: str, content: str, meta: str | None = None, is_latest: bool = False) -> None:
+    st.markdown(build_message_html(role, content, meta=meta, is_latest=is_latest), unsafe_allow_html=True)
+
+
+def render_message_into(
+    container,
+    role: str,
+    content: str,
+    meta: str | None = None,
+    is_latest: bool = False,
+    extra_classes: str = "",
+) -> None:
+    container.markdown(
+        build_message_html(role, content, meta=meta, is_latest=is_latest, extra_classes=extra_classes),
+        unsafe_allow_html=True,
+    )
 
 
 def render_typing_indicator() -> None:
@@ -189,6 +214,58 @@ def render_typing_indicator() -> None:
     )
 
 
+def render_typing_indicator_into(container) -> None:
+    container.markdown(
+        """
+        <div class="sg-row assistant">
+            <div class="sg-msg assistant typing new">
+                <div class="sg-body">
+                    <div class="typing-dots" aria-label="Assistant is thinking">
+                        <span></span><span></span><span></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def iter_stream_events(response: requests.Response):
+    for raw_line in response.iter_lines(decode_unicode=True):
+        if not raw_line:
+            continue
+        line = raw_line if isinstance(raw_line, str) else raw_line.decode("utf-8", errors="ignore")
+        try:
+            payload = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            yield payload
+
+
+def build_message_meta(
+    provider: str, selected_model: str, backend_metrics: dict, route_used: str, latency_ms: int
+) -> str:
+    tool_used = str(backend_metrics.get("tool_used", "none")).strip().lower()
+    if route_used == "rag":
+        mode = "RAG"
+    elif route_used == "chat_tools":
+        mode = f"Chat + {TOOL_LABELS.get(tool_used, tool_used.replace('_', ' ').title())}"
+    else:
+        mode = "Chat"
+
+    server_latency = backend_metrics.get("latency_ms", latency_ms)
+    input_tokens = backend_metrics.get("estimated_input_tokens", "-")
+    output_tokens = backend_metrics.get("estimated_output_tokens", "-")
+    cost_usd = format_usd_value(backend_metrics.get("estimated_cost_usd"))
+    cost_label = f"${cost_usd}" if cost_usd != "n/a" else "n/a"
+    return (
+        f"{provider} | {selected_model} | {mode} | {server_latency} ms"
+        f" | in:{input_tokens} tok | out:{output_tokens} tok | {cost_label}"
+    )
+
+
 def render_chat_bottom_anchor() -> None:
     st.markdown('<div id="chat-bottom-anchor" class="chat-bottom-anchor"></div>', unsafe_allow_html=True)
 
@@ -203,9 +280,24 @@ def render_motion_bridge(auto_scroll: bool = False) -> None:
         const root = window.parent.document;
         const anchor = root.getElementById("chat-bottom-anchor");
         if (anchor) {
-            requestAnimationFrame(() => {
-                anchor.scrollIntoView({ behavior: "smooth", block: "end" });
-            });
+            const followForMs = 2200;
+            const started = performance.now();
+            let lastScroll = 0;
+
+            const tick = (now) => {
+                if (now - lastScroll > 140) {
+                    anchor.scrollIntoView({
+                        behavior: now - started < 260 ? "smooth" : "auto",
+                        block: "end",
+                    });
+                    lastScroll = now;
+                }
+                if (now - started < followForMs) {
+                    requestAnimationFrame(tick);
+                }
+            };
+
+            requestAnimationFrame(tick);
         }
         </script>
         """,
@@ -568,32 +660,90 @@ st.markdown(
     }
 
     [data-testid="stChatInput"] {
-        margin-top: 0.34rem;
+        position: sticky;
+        bottom: 0;
+        padding: 0.85rem 0 1.05rem;
+        margin-top: 0.45rem;
+        z-index: 20;
+        background: linear-gradient(180deg, rgba(6, 6, 6, 0), rgba(6, 6, 6, 0.92) 35%, rgba(6, 6, 6, 0.99) 100%);
     }
 
     [data-testid="stChatInput"] > div {
-        border: 1px solid var(--line) !important;
-        border-radius: 18px;
+        max-width: 900px;
+        margin: 0 auto;
+        min-height: 70px;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        border-radius: 28px;
         background:
-            linear-gradient(180deg, rgba(30, 30, 30, 0.95), rgba(20, 20, 20, 0.95));
-        box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
-        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease;
+            radial-gradient(circle at top, rgba(255, 255, 255, 0.06), transparent 60%),
+            linear-gradient(180deg, rgba(24, 24, 28, 0.96), rgba(14, 14, 18, 0.98));
+        box-shadow:
+            0 16px 36px rgba(0, 0, 0, 0.28),
+            inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        transition: border-color 180ms ease, box-shadow 180ms ease, transform 180ms ease, background 180ms ease;
+        padding: 0.34rem 0.42rem 0.34rem 0.92rem;
+        backdrop-filter: blur(16px);
+    }
+
+    [data-testid="stChatInput"] [data-baseweb="textarea"] {
+        background: transparent !important;
     }
 
     [data-testid="stChatInput"] > div:focus-within {
-        border-color: var(--line-strong) !important;
-        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.06), 0 10px 18px rgba(0, 0, 0, 0.35) !important;
+        border-color: rgba(255, 255, 255, 0.22) !important;
+        box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.06),
+            0 20px 40px rgba(0, 0, 0, 0.34) !important;
+        transform: translateY(-1px);
     }
 
     [data-testid="stChatInput"] textarea,
     [data-testid="stChatInput"] input {
         color: #f2f2f2 !important;
+        background: transparent !important;
+        border: none !important;
+        font-size: 1rem !important;
+        line-height: 1.45 !important;
     }
 
     [data-testid="stChatInput"] textarea:focus,
     [data-testid="stChatInput"] input:focus {
         box-shadow: none !important;
         outline: none !important;
+    }
+
+    [data-testid="stChatInput"] textarea {
+        padding: 1rem 0.14rem 0.88rem 0 !important;
+        min-height: 28px !important;
+    }
+
+    [data-testid="stChatInput"] textarea::placeholder,
+    [data-testid="stChatInput"] input::placeholder {
+        color: rgba(230, 232, 238, 0.54) !important;
+    }
+
+    [data-testid="stChatInput"] button {
+        width: 44px !important;
+        height: 44px !important;
+        margin-bottom: 1px;
+        border-radius: 999px !important;
+        border: 1px solid rgba(255, 255, 255, 0.14) !important;
+        background:
+            linear-gradient(180deg, rgba(40, 40, 44, 0.98), rgba(22, 22, 26, 0.98)) !important;
+        box-shadow:
+            0 10px 22px rgba(0, 0, 0, 0.22),
+            inset 0 1px 0 rgba(255, 255, 255, 0.05) !important;
+        transition: transform 180ms ease, border-color 180ms ease, box-shadow 180ms ease, background 180ms ease !important;
+    }
+
+    [data-testid="stChatInput"] button:hover {
+        transform: translateY(-1px);
+        border-color: rgba(255, 255, 255, 0.24) !important;
+        background:
+            linear-gradient(180deg, rgba(46, 46, 50, 0.98), rgba(25, 25, 29, 0.98)) !important;
+        box-shadow:
+            0 14px 26px rgba(0, 0, 0, 0.28),
+            inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
     }
 
     .sg-row {
@@ -649,6 +799,13 @@ st.markdown(
             inset 0 1px 0 rgba(255, 255, 255, 0.05);
     }
 
+    .sg-msg.streaming {
+        border-color: rgba(255, 255, 255, 0.18);
+        box-shadow:
+            0 12px 26px rgba(0, 0, 0, 0.2),
+            inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    }
+
     .sg-body {
         min-width: 0;
         margin: 0;
@@ -663,6 +820,19 @@ st.markdown(
         margin: 0;
         padding: 0;
         text-indent: 0;
+    }
+
+    .sg-msg.streaming .sg-text::after {
+        content: "";
+        display: inline-block;
+        width: 0.48rem;
+        height: 1.02em;
+        margin-left: 0.18rem;
+        vertical-align: -0.12em;
+        border-radius: 2px;
+        background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(181, 189, 205, 0.7));
+        animation: sg-caret 0.95s steps(1) infinite;
+        opacity: 0.9;
     }
 
     .sg-meta {
@@ -754,6 +924,15 @@ st.markdown(
         40% {
             opacity: 1;
             transform: translateY(-3px);
+        }
+    }
+
+    @keyframes sg-caret {
+        0%, 49% {
+            opacity: 0.92;
+        }
+        50%, 100% {
+            opacity: 0;
         }
     }
 
@@ -992,6 +1171,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+streaming_placeholder = None
 with st.container():
     history_len = len(st.session_state.chat_history)
     for idx, message in enumerate(st.session_state.chat_history):
@@ -1004,23 +1184,16 @@ with st.container():
             is_latest=(idx == history_len - 1),
         )
     if st.session_state.pending_prompt:
-        render_typing_indicator()
+        streaming_placeholder = st.empty()
+        render_typing_indicator_into(streaming_placeholder)
     render_chat_bottom_anchor()
 
-st.markdown('<div class="prompt-hint">What is on your mind?</div>', unsafe_allow_html=True)
-with st.form("prompt_form", clear_on_submit=True):
-    prompt_col, send_col = st.columns([8.5, 1.5], gap="small")
-    with prompt_col:
-        user_prompt = st.text_input(
-            "Prompt",
-            placeholder="Ask ShinzoGPT...",
-            label_visibility="collapsed",
-        )
-    with send_col:
-        send_pressed = st.form_submit_button("Send", use_container_width=True)
-
-if not send_pressed:
-    user_prompt = ""
+user_prompt = st.chat_input(
+    "Ask ShinzoGPT...",
+    key="chat_prompt",
+    max_chars=MAX_PROMPT_CHARS,
+    disabled=bool(st.session_state.pending_prompt),
+)
 
 if user_prompt:
     cleaned_prompt = normalize_message_content("user", user_prompt).strip()
@@ -1034,6 +1207,8 @@ if user_prompt:
     st.session_state.pending_prompt = cleaned_prompt
     st.session_state.should_scroll_to_bottom = True
     st.rerun()
+
+render_motion_bridge(auto_scroll=st.session_state.should_scroll_to_bottom)
 
 if st.session_state.pending_prompt:
     pending_prompt = str(st.session_state.pending_prompt)
@@ -1060,39 +1235,67 @@ if st.session_state.pending_prompt:
             "enable_tools": enable_tools,
             "chat_history": history_payload,
         }
-        response = HTTP_SESSION.post(
-            f"{API_URL}/chat",
+        bot_reply = ""
+        meta = None
+        route_used = "chat"
+        stream_error = None
+
+        with HTTP_SESSION.post(
+            f"{API_URL}/chat/stream",
             json=payload,
             timeout=(HTTP_CONNECT_TIMEOUT_SEC, HTTP_READ_TIMEOUT_CHAT_SEC),
-        )
-        latency_ms = int((time.perf_counter() - start) * 1000)
-
-        if response.status_code == 200:
-            result = response.json()
-            bot_reply = result.get("response", "No response from agent.")
-            backend_metrics = result.get("metrics", {})
-            route_used = (result.get("route_used") or "").lower()
-            tool_used = str(backend_metrics.get("tool_used", "none")).strip().lower()
-            if route_used == "rag":
-                mode = "RAG"
-            elif route_used == "chat_tools":
-                mode = f"Chat + {TOOL_LABELS.get(tool_used, tool_used.replace('_', ' ').title())}"
+            stream=True,
+        ) as response:
+            if response.status_code != 200:
+                stream_error = f"Backend error: {parse_backend_error(response)}"
             else:
-                mode = "Chat"
-            server_latency = backend_metrics.get("latency_ms", latency_ms)
-            input_tokens = backend_metrics.get("estimated_input_tokens", "-")
-            output_tokens = backend_metrics.get("estimated_output_tokens", "-")
-            cost_usd = format_usd_value(backend_metrics.get("estimated_cost_usd"))
-            cost_label = f"${cost_usd}" if cost_usd != "n/a" else "n/a"
-            meta = (
-                f"{provider} | {selected_model} | {mode} | {server_latency} ms"
-                f" | in:{input_tokens} tok | out:{output_tokens} tok | {cost_label}"
+                if streaming_placeholder is None:
+                    streaming_placeholder = st.empty()
+                render_typing_indicator_into(streaming_placeholder)
+
+                for event in iter_stream_events(response):
+                    event_type = str(event.get("type", "")).strip().lower()
+                    if event_type == "chunk":
+                        delta = str(event.get("delta", ""))
+                        if not delta:
+                            continue
+                        bot_reply += delta
+                        render_message_into(
+                            streaming_placeholder,
+                            "assistant",
+                            bot_reply,
+                            is_latest=True,
+                            extra_classes="streaming",
+                        )
+                    elif event_type == "done":
+                        route_used = str(event.get("route_used", "chat")).strip().lower() or "chat"
+                        backend_metrics = event.get("metrics", {})
+                        meta = build_message_meta(
+                            provider,
+                            selected_model,
+                            backend_metrics if isinstance(backend_metrics, dict) else {},
+                            route_used,
+                            int((time.perf_counter() - start) * 1000),
+                        )
+                    elif event_type == "error":
+                        stream_error = str(event.get("message", "Streaming response failed."))
+                        break
+
+        if stream_error:
+            bot_reply = f"{bot_reply}\n\n{stream_error}".strip() if bot_reply else stream_error
+        elif not bot_reply.strip():
+            bot_reply = "No response from agent."
+
+        if meta is None and bot_reply.strip():
+            meta = build_message_meta(
+                provider,
+                selected_model,
+                {},
+                route_used,
+                int((time.perf_counter() - start) * 1000),
             )
-            st.session_state.chat_history.append({"role": "assistant", "content": bot_reply, "meta": meta})
-        else:
-            st.session_state.chat_history.append(
-                {"role": "assistant", "content": f"Backend error: {parse_backend_error(response)}"}
-            )
+
+        st.session_state.chat_history.append({"role": "assistant", "content": bot_reply, "meta": meta})
     except Exception as e:
         st.session_state.chat_history.append(
             {"role": "assistant", "content": f"Connection error: {e}. Is FastAPI running?"}
@@ -1102,6 +1305,4 @@ if st.session_state.pending_prompt:
         st.session_state.should_scroll_to_bottom = True
 
     st.rerun()
-
-render_motion_bridge(auto_scroll=st.session_state.should_scroll_to_bottom)
 st.session_state.should_scroll_to_bottom = False

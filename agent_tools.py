@@ -5,7 +5,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, Optional, cast
 from urllib.parse import parse_qs, unquote, urlparse
 from xml.etree import ElementTree as ET
 
@@ -1407,7 +1407,7 @@ def choose_agent_action(query: str, llm_instance, chat_history_context: str = ""
     return heuristic
 
 
-def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "") -> Optional[dict[str, Any]]:
+def prepare_agent_tool_run(query: str, llm_instance, chat_history_context: str = "") -> Optional[dict[str, Any]]:
     resolved_query = _resolve_tool_target_query(query, chat_history_context)
     action = choose_agent_action(resolved_query, llm_instance, chat_history_context=chat_history_context)
     if action.tool == "none":
@@ -1436,11 +1436,13 @@ def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "
         if source_urls and "sources:" not in response.lower():
             response = f"{response}\n\nSources: {', '.join(source_urls[:3])}"
         return {
-            "response": response,
+            "direct_response": response,
             "tool_used": action.tool,
             "tool_input": action.tool_input,
             "tool_reason": action.reason,
             "usage": {},
+            "resolved_query": resolved_query,
+            "source_urls": source_urls,
         }
 
     synthesis_prompt = (
@@ -1456,17 +1458,46 @@ def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "
         f"Tool output:\n{tool_result}\n"
     )
 
+    return {
+        "synthesis_prompt": synthesis_prompt,
+        "tool_result": tool_result,
+        "tool_used": action.tool,
+        "tool_input": action.tool_input,
+        "tool_reason": action.reason,
+        "resolved_query": resolved_query,
+        "source_urls": source_urls,
+    }
+
+
+def run_agent_with_tools(query: str, llm_instance, chat_history_context: str = "") -> Optional[dict[str, Any]]:
+    prepared = prepare_agent_tool_run(query, llm_instance, chat_history_context=chat_history_context)
+    if not prepared:
+        return None
+
+    direct_response = cast(Optional[str], prepared.get("direct_response"))
+    if direct_response is not None:
+        return {
+            "response": direct_response,
+            "tool_used": prepared["tool_used"],
+            "tool_input": prepared["tool_input"],
+            "tool_reason": prepared["tool_reason"],
+            "usage": prepared.get("usage", {}),
+        }
+
+    synthesis_prompt = cast(str, prepared["synthesis_prompt"])
     final = llm_instance.invoke(synthesis_prompt)
     response = str(getattr(final, "content", final)).strip()
 
-    if action.tool == "web_search" and source_urls and "sources:" not in response.lower():
+    tool_used = cast(str, prepared["tool_used"])
+    source_urls = cast(list[str], prepared.get("source_urls", []))
+    if tool_used == "web_search" and source_urls and "sources:" not in response.lower():
         source_list = ", ".join(source_urls[:3])
         response = f"{response}\n\nSources: {source_list}"
 
     return {
         "response": response,
-        "tool_used": action.tool,
-        "tool_input": action.tool_input,
-        "tool_reason": action.reason,
+        "tool_used": tool_used,
+        "tool_input": prepared["tool_input"],
+        "tool_reason": prepared["tool_reason"],
         "usage": extract_usage_metrics(final),
     }

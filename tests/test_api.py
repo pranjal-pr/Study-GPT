@@ -1,3 +1,4 @@
+import json
 import shutil
 from pathlib import Path
 
@@ -383,3 +384,76 @@ def test_chat_skips_tools_when_disabled(monkeypatch):
     assert body["route_used"] == "chat"
     assert body["metrics"]["tool_used"] == "none"
     assert called["tool_agent"] is False
+
+
+def test_chat_stream_returns_chunks_and_done(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+
+    class DummyChunk:
+        def __init__(self, content):
+            self.content = content
+
+    class DummyLLM:
+        def stream(self, _prompt):
+            yield DummyChunk("hello ")
+            yield DummyChunk("world")
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+
+    payload = {
+        "query": "hello",
+        "provider": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "api_key": "dummy",
+        "routing_mode": "chat_only",
+        "enable_tools": False,
+    }
+
+    with client.stream("POST", "/chat/stream", json=payload) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert lines[0] == {"type": "chunk", "delta": "hello "}
+    assert lines[1] == {"type": "chunk", "delta": "world"}
+    assert lines[-1]["type"] == "done"
+    assert lines[-1]["route_used"] == "chat"
+
+
+def test_chat_stream_handles_direct_tool_response(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+
+    class DummyLLM:
+        pass
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+    monkeypatch.setattr(
+        api,
+        "prepare_agent_tool_run",
+        lambda *_args, **_kwargs: {
+            "direct_response": "Current local time in Jaipur: 2:30 PM.",
+            "tool_used": "current_time",
+            "tool_input": "jaipur",
+            "tool_reason": "time request",
+            "usage": {},
+            "resolved_query": "what is the current time in jaipur",
+            "source_urls": [],
+        },
+    )
+
+    payload = {
+        "query": "what is the current time in jaipur",
+        "provider": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "api_key": "dummy",
+        "routing_mode": "chat_only",
+        "enable_tools": True,
+    }
+
+    with client.stream("POST", "/chat/stream", json=payload) as response:
+        lines = [json.loads(line) for line in response.iter_lines() if line]
+
+    assert response.status_code == 200
+    assert any(line.get("type") == "chunk" for line in lines)
+    assert lines[-1]["type"] == "done"
+    assert lines[-1]["route_used"] == "chat_tools"
+    assert lines[-1]["metrics"]["tool_used"] == "current_time"

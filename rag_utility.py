@@ -92,9 +92,32 @@ def answer_question_with_agent(
     """
     Retrieves context and answers strictly from uploaded documents.
     """
+    prompt, _sources = build_rag_prompt(
+        user_question=user_question,
+        vector_db_path=vector_db_path,
+        chat_history_context=chat_history_context,
+    )
+    if prompt is None:
+        return None
+
+    response = llm_instance.invoke(prompt)
+    return {
+        "response": getattr(response, "content", str(response)),
+        "usage": extract_usage_metrics(response),
+    }
+
+
+def build_rag_prompt(
+    user_question: str,
+    vector_db_path: str,
+    chat_history_context: str = "",
+):
+    """
+    Prepares the document-grounded prompt so non-streaming and streaming code paths stay aligned.
+    """
     combined_context, sources = get_context_and_sources(vector_db_path, user_question)
     if not combined_context:
-        return None
+        return None, []
 
     source_list = ", ".join(sources)
 
@@ -114,9 +137,4 @@ def answer_question_with_agent(
         f"CONTEXT:\n{combined_context}\n\n"
         f"Always end with: Sources: {source_list}"
     )
-
-    response = llm_instance.invoke(prompt)
-    return {
-        "response": getattr(response, "content", str(response)),
-        "usage": extract_usage_metrics(response),
-    }
+    return prompt, sources

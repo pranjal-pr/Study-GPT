@@ -1,16 +1,18 @@
+import json
 import os
 import re
 import threading
 import time
 import uuid
 from collections import defaultdict, deque
-from typing import Any, List, Optional, cast
+from typing import Any, Iterator, List, Optional, cast
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
-from agent_tools import run_agent_with_tools
+from agent_tools import prepare_agent_tool_run, run_agent_with_tools
 from observability import (
     estimate_cost_usd,
     estimate_tokens,
@@ -19,7 +21,7 @@ from observability import (
     log_event,
     metrics_store,
 )
-from rag_utility import answer_question_with_agent, process_documents_to_chroma_db
+from rag_utility import answer_question_with_agent, build_rag_prompt, process_documents_to_chroma_db
 
 load_dotenv()
 
@@ -354,6 +356,125 @@ def _validate_chat_payload(request: ChatRequest) -> None:
             raise HTTPException(status_code=400, detail="Vector database path does not exist.")
 
 
+def _resolve_use_rag(payload: ChatRequest) -> bool:
+    if payload.routing_mode == "chat_only":
+        return False
+    if payload.routing_mode == "rag_only":
+        if not payload.vector_db_path:
+            raise HTTPException(status_code=400, detail="RAG-only mode selected, but no knowledge base is attached.")
+        return True
+    return bool(payload.vector_db_path and should_use_rag(payload.query, payload.chat_history))
+
+
+def _build_chat_prompt(query: str, history_context: str) -> str:
+    if history_context:
+        return (
+            "You are a helpful conversational assistant.\n"
+            "Use the conversation history for continuity (references like 'that', 'previous', 'last topic').\n"
+            "If the history is irrelevant, prioritize the latest user question.\n\n"
+            f"Conversation history:\n{history_context}\n\n"
+            f"Current user question:\n{query}"
+        )
+    return query
+
+
+def _finalize_chat_payload(
+    payload: ChatRequest,
+    history_context: str,
+    response: str,
+    usage_metrics: dict[str, int],
+    started: float,
+    tool_used: str,
+    use_rag: bool,
+):
+    latency_ms = (time.perf_counter() - started) * 1000
+    token_usage_source = "estimated"
+    if usage_metrics:
+        input_tokens = int(usage_metrics.get("input_tokens", 0))
+        output_tokens = int(usage_metrics.get("output_tokens", 0))
+        token_usage_source = "provider"
+    else:
+        input_tokens = estimate_tokens(payload.query) + estimate_tokens(history_context)
+        output_tokens = estimate_tokens(response)
+
+    estimated_cost = estimate_cost_usd(payload.model, input_tokens, output_tokens)
+    pricing_configured = has_model_pricing(payload.model)
+    route_used = "rag" if use_rag else ("chat_tools" if tool_used != "none" else "chat")
+
+    metrics_store.record_chat(
+        provider=payload.provider,
+        model=payload.model,
+        latency_ms=latency_ms,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        estimated_cost_usd=estimated_cost or 0.0,
+    )
+    log_event(
+        "chat_completed",
+        provider=payload.provider,
+        model=payload.model,
+        latency_ms=round(latency_ms, 2),
+        estimated_input_tokens=input_tokens,
+        estimated_output_tokens=output_tokens,
+        estimated_cost_usd=estimated_cost,
+        token_usage_source=token_usage_source,
+        pricing_configured=pricing_configured,
+        rag_used=use_rag,
+        tool_used=tool_used,
+        routing_mode=payload.routing_mode,
+    )
+    return {
+        "response": response,
+        "route_used": route_used,
+        "metrics": {
+            "latency_ms": round(latency_ms, 2),
+            "estimated_input_tokens": input_tokens,
+            "estimated_output_tokens": output_tokens,
+            "estimated_cost_usd": estimated_cost,
+            "tool_used": tool_used,
+            "token_usage_source": token_usage_source,
+            "pricing_configured": pricing_configured,
+        },
+    }
+
+
+def _serialize_stream_event(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=True) + "\n"
+
+
+def _chunk_text_for_stream(text: str, chunk_size: int = 24) -> Iterator[str]:
+    if not text:
+        return
+
+    buffer = ""
+    for piece in re.split(r"(\s+)", text):
+        if not piece:
+            continue
+        if buffer and len(buffer) + len(piece) > chunk_size:
+            yield buffer
+            buffer = piece
+            continue
+        buffer += piece
+
+    if buffer:
+        yield buffer
+
+
+def _extract_stream_text(chunk: Any) -> str:
+    content = getattr(chunk, "content", chunk)
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and item.get("text"):
+                parts.append(str(item["text"]))
+        return "".join(parts)
+    return str(content or "")
+
+
 @app.middleware("http")
 async def request_telemetry_middleware(request: Request, call_next):
     request_id = str(uuid.uuid4())
@@ -455,18 +576,7 @@ async def chat(request: Request, payload: ChatRequest):
         history_context = _build_history_context(payload.chat_history)
         tool_used = "none"
         usage_metrics: dict[str, int] = {}
-        token_usage_source = "estimated"
-
-        if payload.routing_mode == "chat_only":
-            use_rag = False
-        elif payload.routing_mode == "rag_only":
-            if not payload.vector_db_path:
-                raise HTTPException(
-                    status_code=400, detail="RAG-only mode selected, but no knowledge base is attached."
-                )
-            use_rag = True
-        else:
-            use_rag = bool(payload.vector_db_path and should_use_rag(payload.query, payload.chat_history))
+        use_rag = _resolve_use_rag(payload)
 
         if use_rag:
             vector_db_path = payload.vector_db_path or ""
@@ -500,73 +610,166 @@ async def chat(request: Request, payload: ChatRequest):
                 tool_used = cast(str, tool_result.get("tool_used", "none"))
                 usage_metrics = cast(dict[str, int], tool_result.get("usage", {}))
             else:
-                if history_context:
-                    prompt = (
-                        "You are a helpful conversational assistant.\n"
-                        "Use the conversation history for continuity (references like 'that', 'previous', 'last topic').\n"
-                        "If the history is irrelevant, prioritize the latest user question.\n\n"
-                        f"Conversation history:\n{history_context}\n\n"
-                        f"Current user question:\n{payload.query}"
-                    )
-                else:
-                    prompt = payload.query
+                prompt = _build_chat_prompt(payload.query, history_context)
                 raw_response = invoke_with_retries(lambda: llm.invoke(prompt))
                 response = cast(str, getattr(raw_response, "content", raw_response))
                 usage_metrics = extract_usage_metrics(raw_response)
 
-        latency_ms = (time.perf_counter() - started) * 1000
-        if usage_metrics:
-            input_tokens = int(usage_metrics.get("input_tokens", 0))
-            output_tokens = int(usage_metrics.get("output_tokens", 0))
-            token_usage_source = "provider"
-        else:
-            input_tokens = estimate_tokens(payload.query) + estimate_tokens(history_context)
-            output_tokens = estimate_tokens(response)
-        estimated_cost = estimate_cost_usd(payload.model, input_tokens, output_tokens)
-        pricing_configured = has_model_pricing(payload.model)
-        route_used = "rag" if use_rag else ("chat_tools" if tool_used != "none" else "chat")
-
-        metrics_store.record_chat(
-            provider=payload.provider,
-            model=payload.model,
-            latency_ms=latency_ms,
-            input_tokens=input_tokens,
-            output_tokens=output_tokens,
-            estimated_cost_usd=estimated_cost or 0.0,
-        )
-        log_event(
-            "chat_completed",
-            provider=payload.provider,
-            model=payload.model,
-            latency_ms=round(latency_ms, 2),
-            estimated_input_tokens=input_tokens,
-            estimated_output_tokens=output_tokens,
-            estimated_cost_usd=estimated_cost,
-            token_usage_source=token_usage_source,
-            pricing_configured=pricing_configured,
-            rag_used=use_rag,
+        return _finalize_chat_payload(
+            payload=payload,
+            history_context=history_context,
+            response=response,
+            usage_metrics=usage_metrics,
+            started=started,
             tool_used=tool_used,
-            routing_mode=payload.routing_mode,
+            use_rag=use_rag,
         )
-
-        return {
-            "response": response,
-            "route_used": route_used,
-            "metrics": {
-                "latency_ms": round(latency_ms, 2),
-                "estimated_input_tokens": input_tokens,
-                "estimated_output_tokens": output_tokens,
-                "estimated_cost_usd": estimated_cost,
-                "tool_used": tool_used,
-                "token_usage_source": token_usage_source,
-                "pricing_configured": pricing_configured,
-            },
-        }
     except HTTPException:
         raise
     except Exception as exc:
         log_event("chat_failed", error_type=type(exc).__name__)
         raise HTTPException(status_code=500, detail=f"Chat failed: {exc}")
+
+
+@app.post("/chat/stream")
+async def chat_stream(request: Request, payload: ChatRequest):
+    """Streams assistant text as newline-delimited JSON events."""
+    _enforce_rate_limit(request, "chat")
+    _validate_chat_payload(payload)
+
+    api_key = _resolve_api_key(payload.provider, payload.api_key)
+    if not api_key:
+        raise HTTPException(status_code=400, detail=f"API key for {payload.provider} is missing.")
+
+    llm = get_llm(payload.provider, payload.model, api_key, payload.is_nvidia_key)
+    history_context = _build_history_context(payload.chat_history)
+    use_rag = _resolve_use_rag(payload)
+
+    def event_stream():
+        started = time.perf_counter()
+        tool_used = "none"
+        usage_metrics: dict[str, int] = {}
+        response_parts: list[str] = []
+
+        try:
+            if use_rag:
+                prompt, _sources = build_rag_prompt(
+                    user_question=payload.query,
+                    vector_db_path=payload.vector_db_path or "",
+                    chat_history_context=history_context,
+                )
+                if prompt is None:
+                    fallback = "I couldn't find relevant information for that in your uploaded documents."
+                    for delta in _chunk_text_for_stream(fallback):
+                        response_parts.append(delta)
+                        yield _serialize_stream_event({"type": "chunk", "delta": delta})
+                else:
+                    stream_fn = getattr(llm, "stream", None)
+                    if callable(stream_fn):
+                        last_chunk = None
+                        for chunk in stream_fn(prompt):
+                            last_chunk = chunk
+                            delta = _extract_stream_text(chunk)
+                            if not delta:
+                                continue
+                            response_parts.append(delta)
+                            yield _serialize_stream_event({"type": "chunk", "delta": delta})
+                        usage_metrics = extract_usage_metrics(last_chunk)
+                    else:
+                        raw_response = invoke_with_retries(lambda: llm.invoke(prompt))
+                        usage_metrics = extract_usage_metrics(raw_response)
+                        text = cast(str, getattr(raw_response, "content", raw_response))
+                        for delta in _chunk_text_for_stream(text):
+                            response_parts.append(delta)
+                            yield _serialize_stream_event({"type": "chunk", "delta": delta})
+            else:
+                prepared_tool_run = None
+                if payload.enable_tools:
+                    prepared_tool_run = invoke_with_retries(
+                        lambda: prepare_agent_tool_run(
+                            payload.query,
+                            llm,
+                            chat_history_context=history_context,
+                        )
+                    )
+
+                if prepared_tool_run:
+                    tool_used = cast(str, prepared_tool_run.get("tool_used", "none"))
+                    direct_response = cast(Optional[str], prepared_tool_run.get("direct_response"))
+                    if direct_response is not None:
+                        for delta in _chunk_text_for_stream(direct_response):
+                            response_parts.append(delta)
+                            yield _serialize_stream_event({"type": "chunk", "delta": delta})
+                    else:
+                        synthesis_prompt = cast(str, prepared_tool_run["synthesis_prompt"])
+                        source_urls = cast(list[str], prepared_tool_run.get("source_urls", []))
+                        stream_fn = getattr(llm, "stream", None)
+                        if callable(stream_fn):
+                            last_chunk = None
+                            for chunk in stream_fn(synthesis_prompt):
+                                last_chunk = chunk
+                                delta = _extract_stream_text(chunk)
+                                if not delta:
+                                    continue
+                                response_parts.append(delta)
+                                yield _serialize_stream_event({"type": "chunk", "delta": delta})
+                            usage_metrics = extract_usage_metrics(last_chunk)
+                        else:
+                            raw_response = invoke_with_retries(lambda: llm.invoke(synthesis_prompt))
+                            usage_metrics = extract_usage_metrics(raw_response)
+                            text = cast(str, getattr(raw_response, "content", raw_response))
+                            for delta in _chunk_text_for_stream(text):
+                                response_parts.append(delta)
+                                yield _serialize_stream_event({"type": "chunk", "delta": delta})
+
+                        streamed_response = "".join(response_parts).strip()
+                        if tool_used == "web_search" and source_urls and "sources:" not in streamed_response.lower():
+                            trailing_sources = f"\n\nSources: {', '.join(source_urls[:3])}"
+                            response_parts.append(trailing_sources)
+                            yield _serialize_stream_event({"type": "chunk", "delta": trailing_sources})
+                else:
+                    prompt = _build_chat_prompt(payload.query, history_context)
+                    stream_fn = getattr(llm, "stream", None)
+                    if callable(stream_fn):
+                        last_chunk = None
+                        for chunk in stream_fn(prompt):
+                            last_chunk = chunk
+                            delta = _extract_stream_text(chunk)
+                            if not delta:
+                                continue
+                            response_parts.append(delta)
+                            yield _serialize_stream_event({"type": "chunk", "delta": delta})
+                        usage_metrics = extract_usage_metrics(last_chunk)
+                    else:
+                        raw_response = invoke_with_retries(lambda: llm.invoke(prompt))
+                        usage_metrics = extract_usage_metrics(raw_response)
+                        text = cast(str, getattr(raw_response, "content", raw_response))
+                        for delta in _chunk_text_for_stream(text):
+                            response_parts.append(delta)
+                            yield _serialize_stream_event({"type": "chunk", "delta": delta})
+
+            response_text = "".join(response_parts).strip()
+            final_payload = _finalize_chat_payload(
+                payload=payload,
+                history_context=history_context,
+                response=response_text,
+                usage_metrics=usage_metrics,
+                started=started,
+                tool_used=tool_used,
+                use_rag=use_rag,
+            )
+            yield _serialize_stream_event(
+                {
+                    "type": "done",
+                    "route_used": final_payload["route_used"],
+                    "metrics": final_payload["metrics"],
+                }
+            )
+        except Exception as exc:
+            log_event("chat_failed", error_type=type(exc).__name__)
+            yield _serialize_stream_event({"type": "error", "message": f"Chat failed: {exc}"})
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 @app.get("/metrics/summary")
