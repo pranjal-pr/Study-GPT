@@ -686,7 +686,7 @@ st.markdown(
         backdrop-filter: none;
     }
 
-    [data-testid="stChatInput"] > div > div {
+    [data-testid="stChatInput"] > div > div:last-child {
         display: flex;
         align-items: flex-end;
         gap: 0.58rem;
@@ -705,6 +705,10 @@ st.markdown(
         backdrop-filter: blur(16px);
     }
 
+    [data-testid="stChatInput"] > div > div:last-child > div:first-child {
+        display: none !important;
+    }
+
     [data-testid="stChatInput"] [data-baseweb="textarea"] {
         flex: 1 1 auto;
         min-width: 0;
@@ -716,13 +720,25 @@ st.markdown(
         background: transparent !important;
     }
 
-    [data-testid="stChatInput"] > div > div > div:first-child {
+    [data-testid="stChatInput"] [data-baseweb="base-input"] {
         flex: 1 1 auto;
-        min-width: 0;
         width: 100%;
+        min-width: 0;
     }
 
-    [data-testid="stChatInput"] > div > div:focus-within {
+    [data-testid="stChatInput"] [data-testid="stChatInputTextArea"] {
+        flex: 1 1 auto;
+        width: 100% !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+    }
+
+    [data-testid="stChatInput"] > div > div:last-child > div:nth-child(3) {
+        flex: 1 1 auto;
+        min-width: 0;
+    }
+
+    [data-testid="stChatInput"] > div > div:last-child:focus-within {
         border-color: rgba(255, 255, 255, 0.22) !important;
         box-shadow:
             0 0 0 1px rgba(255, 255, 255, 0.06),
