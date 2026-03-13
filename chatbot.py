@@ -660,12 +660,12 @@ st.markdown(
     }
 
     [data-testid="stChatInput"] {
-        position: sticky;
-        bottom: 0;
-        padding: 0.2rem 0 0.55rem;
-        margin-top: 0.5rem;
-        z-index: 20;
-        background: transparent;
+        position: relative;
+        bottom: auto;
+        padding: 0;
+        margin: 0.45rem 0 0.3rem;
+        z-index: 1;
+        background: none !important;
     }
 
     [data-testid="stChatInput"] > div {
@@ -686,13 +686,13 @@ st.markdown(
         align-items: center;
         gap: 0.42rem;
         width: 100%;
-        min-height: 58px;
-        border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        border-radius: 18px;
-        background: rgba(16, 18, 24, 0.96);
-        box-shadow: 0 8px 20px rgba(0, 0, 0, 0.16);
-        transition: border-color 160ms ease, box-shadow 160ms ease, background 160ms ease;
-        padding: 0.28rem 0.34rem 0.28rem 0.78rem;
+        min-height: auto;
+        border: none !important;
+        border-radius: 0;
+        background: transparent !important;
+        box-shadow: none !important;
+        transition: none;
+        padding: 0;
         backdrop-filter: none;
     }
 
@@ -704,7 +704,11 @@ st.markdown(
         flex: 1 1 auto;
         min-width: 0;
         width: 100%;
-        background: transparent !important;
+        border: 1px solid rgba(255, 255, 255, 0.1) !important;
+        border-radius: 14px !important;
+        background: rgba(16, 18, 24, 0.92) !important;
+        box-shadow: none !important;
+        padding: 0 0 0 0.72rem;
     }
 
     [data-testid="stChatInput"] [data-baseweb="textarea"] > div {
@@ -729,11 +733,9 @@ st.markdown(
         min-width: 0;
     }
 
-    [data-testid="stChatInput"] > div > div:last-child:focus-within {
+    [data-testid="stChatInput"] [data-baseweb="textarea"]:focus-within {
         border-color: rgba(255, 255, 255, 0.18) !important;
-        box-shadow:
-            0 0 0 1px rgba(255, 255, 255, 0.06),
-            0 10px 24px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.05) !important;
     }
 
     [data-testid="stChatInput"] textarea,
@@ -769,14 +771,14 @@ st.markdown(
         margin-bottom: 0;
         border-radius: 999px !important;
         border: 1px solid rgba(255, 255, 255, 0.1) !important;
-        background: rgba(28, 31, 38, 1) !important;
+        background: transparent !important;
         box-shadow: none !important;
         transition: border-color 160ms ease, background 160ms ease !important;
     }
 
     [data-testid="stChatInput"] button:hover {
         border-color: rgba(255, 255, 255, 0.18) !important;
-        background: rgba(34, 38, 46, 1) !important;
+        background: rgba(255, 255, 255, 0.04) !important;
     }
 
     .sg-row {
