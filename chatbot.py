@@ -377,29 +377,6 @@ st.markdown(
         border-right: 1px solid rgba(255, 255, 255, 0.08);
     }
 
-    .left-rail {
-        position: fixed;
-        top: 110px;
-        left: 10px;
-        display: flex;
-        flex-direction: column;
-        gap: 11px;
-        z-index: 5;
-    }
-
-    .rail-dot {
-        width: 36px;
-        height: 36px;
-        border-radius: 999px;
-        border: 1px solid rgba(255, 255, 255, 0.14);
-        background: rgba(16, 16, 19, 0.9);
-        color: #d2d6de;
-        font-size: 0.92rem;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
     .hero {
         border: 1px solid var(--line);
         border-radius: 18px;
@@ -1026,10 +1003,6 @@ st.markdown(
             padding-top: 1.2rem;
         }
 
-        .left-rail {
-            display: none;
-        }
-
         .hero h1 {
             font-size: 1.7rem;
         }
@@ -1068,18 +1041,6 @@ logo_markup = (
     f'<img src="{logo_data_uri}" alt="ShinzoGPT logo" />'
     if logo_data_uri
     else '<div class="hero-logo-fallback">SG</div>'
-)
-
-st.markdown(
-    """
-    <div class="left-rail">
-        <div class="rail-dot">S</div>
-        <div class="rail-dot">C</div>
-        <div class="rail-dot">M</div>
-        <div class="rail-dot">R</div>
-    </div>
-    """,
-    unsafe_allow_html=True,
 )
 
 with st.sidebar:
