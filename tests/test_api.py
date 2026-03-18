@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 import api
+from observability import MetricsStore
 
 client = TestClient(api.app)
 
@@ -384,6 +385,48 @@ def test_chat_skips_tools_when_disabled(monkeypatch):
     assert body["route_used"] == "chat"
     assert body["metrics"]["tool_used"] == "none"
     assert called["tool_agent"] is False
+
+
+def test_metrics_summary_does_not_increment_request_count(monkeypatch):
+    monkeypatch.setattr(api, "metrics_store", MetricsStore(max_events=25))
+    summary_before = client.get("/metrics/summary")
+    assert summary_before.status_code == 200
+    body_before = summary_before.json()
+    assert body_before["requests_total"] == 0
+
+    summary_after = client.get("/metrics/summary")
+    assert summary_after.status_code == 200
+    body_after = summary_after.json()
+    assert body_after["requests_total"] == 0
+
+
+def test_chat_requests_still_increment_request_count(monkeypatch):
+    monkeypatch.setattr(api.rate_limiter, "is_allowed", allow_all)
+    monkeypatch.setattr(api, "metrics_store", MetricsStore(max_events=25))
+
+    class DummyResponse:
+        content = "hello from model"
+
+    class DummyLLM:
+        def invoke(self, _query):
+            return DummyResponse()
+
+    monkeypatch.setattr(api, "get_llm", lambda *args, **kwargs: DummyLLM())
+
+    payload = {
+        "query": "hello",
+        "provider": "Groq",
+        "model": "llama-3.3-70b-versatile",
+        "api_key": "dummy",
+    }
+    response = client.post("/chat", json=payload)
+    assert response.status_code == 200
+
+    summary = client.get("/metrics/summary")
+    assert summary.status_code == 200
+    body = summary.json()
+    assert body["requests_total"] == 1
+    assert body["endpoint_stats"]["POST /chat"]["count"] == 1
 
 
 def test_chat_stream_returns_chunks_and_done(monkeypatch):

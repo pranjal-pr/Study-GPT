@@ -33,6 +33,11 @@ MAX_HISTORY_TURNS = int(os.getenv("MAX_HISTORY_TURNS", "12"))
 LLM_RETRY_ATTEMPTS = int(os.getenv("LLM_RETRY_ATTEMPTS", "2"))
 LLM_RETRY_BASE_DELAY_SEC = float(os.getenv("LLM_RETRY_BASE_DELAY_SEC", "0.5"))
 OBSERVABILITY_TOKEN = os.getenv("OBSERVABILITY_TOKEN", "")
+REQUEST_METRICS_EXCLUDED_PATHS = {
+    "/health",
+    "/metrics/summary",
+    "/metrics/events",
+}
 
 
 PROVIDER_MODELS = {
@@ -326,6 +331,10 @@ def _resolve_api_key(provider: str, request_api_key: Optional[str]) -> str:
     return env_value
 
 
+def _should_record_request_metrics(path: str) -> bool:
+    return path not in REQUEST_METRICS_EXCLUDED_PATHS
+
+
 def _validate_chat_payload(request: ChatRequest) -> None:
     query = (request.query or "").strip()
     if not query:
@@ -490,7 +499,13 @@ async def request_telemetry_middleware(request: Request, call_next):
         return response
     finally:
         latency_ms = (time.perf_counter() - started) * 1000
-        metrics_store.record_request(endpoint=path, method=method, status_code=status_code, latency_ms=latency_ms)
+        if _should_record_request_metrics(path):
+            metrics_store.record_request(
+                endpoint=path,
+                method=method,
+                status_code=status_code,
+                latency_ms=latency_ms,
+            )
         log_event(
             "request_completed",
             request_id=request_id,
