@@ -1,0 +1,166 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+  --background: #f5f2e8;
+  --foreground: #102126;
+  --card: rgba(255, 252, 244, 0.72);
+  --card-foreground: #102126;
+  --popover: rgba(252, 249, 241, 0.95);
+  --popover-foreground: #102126;
+  --primary: #0f766e;
+  --primary-foreground: #f7fffd;
+  --secondary: #dfd8c8;
+  --secondary-foreground: #1b3134;
+  --muted: rgba(226, 219, 204, 0.8);
+  --muted-foreground: #587073;
+  --accent: #f6b44c;
+  --accent-foreground: #2d2315;
+  --destructive: #b64747;
+  --destructive-foreground: #fff7f5;
+  --border: rgba(16, 33, 38, 0.12);
+  --input: rgba(255, 255, 255, 0.9);
+  --ring: rgba(15, 118, 110, 0.28);
+  --chart-1: #0f766e;
+  --chart-2: #f59e0b;
+  --chart-3: #2563eb;
+  --chart-4: #dc2626;
+  --chart-5: #7c3aed;
+  --radius: 1.35rem;
+}
+
+.dark {
+  --background: #08131b;
+  --foreground: #ecf6f3;
+  --card: rgba(8, 19, 27, 0.72);
+  --card-foreground: #ecf6f3;
+  --popover: rgba(8, 19, 27, 0.96);
+  --popover-foreground: #ecf6f3;
+  --primary: #46d6c8;
+  --primary-foreground: #06292d;
+  --secondary: #122534;
+  --secondary-foreground: #d9f3ef;
+  --muted: rgba(18, 37, 52, 0.88);
+  --muted-foreground: #8ab6b0;
+  --accent: #f0b454;
+  --accent-foreground: #1f180d;
+  --destructive: #ff7a7a;
+  --destructive-foreground: #250909;
+  --border: rgba(236, 246, 243, 0.1);
+  --input: rgba(10, 26, 36, 0.94);
+  --ring: rgba(70, 214, 200, 0.28);
+  --chart-1: #46d6c8;
+  --chart-2: #f0b454;
+  --chart-3: #60a5fa;
+  --chart-4: #fb7185;
+  --chart-5: #c084fc;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --color-chart-5: var(--chart-5);
+  --radius-sm: calc(var(--radius) - 0.5rem);
+  --radius-md: calc(var(--radius) - 0.25rem);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 0.5rem);
+  --font-sans: var(--font-manrope);
+  --font-heading: var(--font-sora);
+  --font-mono: var(--font-plex-mono);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.18), transparent 32%),
+    radial-gradient(circle at top right, rgba(245, 158, 11, 0.16), transparent 28%),
+    radial-gradient(circle at bottom left, rgba(37, 99, 235, 0.12), transparent 24%),
+    var(--background);
+  color: var(--foreground);
+}
+
+::selection {
+  background: color-mix(in oklab, var(--primary) 28%, transparent);
+  color: var(--foreground);
+}
+
+button,
+input,
+textarea,
+select {
+  outline: none;
+}
+
+.glass-panel {
+  background: var(--card);
+  backdrop-filter: blur(22px);
+}
+
+.grid-noise {
+  background-image:
+    linear-gradient(to right, color-mix(in oklab, var(--border) 70%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in oklab, var(--border) 70%, transparent) 1px, transparent 1px);
+  background-size: 28px 28px;
+}
+
+.animated-orb {
+  position: relative;
+}
+
+.animated-orb::before,
+.animated-orb::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 1px solid color-mix(in oklab, var(--primary) 26%, transparent);
+  animation: ripple 2.2s ease-out infinite;
+}
+
+.animated-orb::after {
+  animation-delay: 0.8s;
+}
+
+@keyframes ripple {
+  0% {
+    opacity: 0;
+    transform: scale(0.86);
+  }
+  18% {
+    opacity: 0.75;
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.22);
+  }
+}

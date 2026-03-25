@@ -1,16 +1,33 @@
-FROM python:3.11-slim
+FROM node:20-bookworm-slim AS base
 
+ENV NEXT_TELEMETRY_DISABLED=1
+
+FROM base AS deps
 WORKDIR /app
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1
+COPY package.json package-lock.json ./
+RUN npm ci
 
-COPY requirements.txt .
-RUN pip install --upgrade pip && pip install -r requirements.txt
+FROM base AS builder
+WORKDIR /app
 
+COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+
+RUN npm run build
+
+FROM base AS runner
+WORKDIR /app
+
+ENV NODE_ENV=production
+ENV NEXT_TELEMETRY_DISABLED=1
+ENV HOSTNAME=0.0.0.0
+ENV PORT=7860
+
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 
 EXPOSE 7860
 
-CMD ["sh", "-c", "uvicorn api:app --host 127.0.0.1 --port 8000 & streamlit run chatbot.py --server.enableCORS false --server.enableXsrfProtection false --server.address 0.0.0.0 --server.port 7860 --server.headless true"]
+CMD ["node", "server.js"]
