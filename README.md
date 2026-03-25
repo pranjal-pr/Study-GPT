@@ -215,9 +215,9 @@ On each push to `main`/`master`:
 1. Validates required secrets
 2. Pushes exact GitHub commit to HF Space `main`
 
-Required GitHub repository secrets:
-- `HF_TOKEN`: Hugging Face token with write access to the Space repo
-- `HF_SPACE_ID`: `username/space-name`
+Required GitHub Actions configuration:
+- Secret `HF_TOKEN`: Hugging Face token with write access to the Space repo
+- Variable `HF_SPACE_ID`: `username/space-name`
 
 ## Failures + Tradeoffs
 
