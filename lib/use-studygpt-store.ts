@@ -24,8 +24,10 @@ interface StudyGPTState {
   apiKeys: ProviderKeys;
   voiceSettings: VoiceSettings;
   visualizationOpen: boolean;
+  hasHydrated: boolean;
   createSession: (seedPrompt?: string) => string;
   setActiveSession: (id: string) => void;
+  setHasHydrated: (value: boolean) => void;
   updateSelectedModel: (model: string, provider: ProviderId) => void;
   updateApiKey: (provider: ProviderId, value: string) => void;
   updateVoiceSettings: (settings: Partial<VoiceSettings>) => void;
@@ -54,13 +56,11 @@ function createSessionRecord(seedPrompt?: string): ChatSession {
   };
 }
 
-const initialSession = createSessionRecord();
-
 export const useStudyGPTStore = create<StudyGPTState>()(
   persist(
     (set, get) => ({
-      sessions: [initialSession],
-      activeSessionId: initialSession.id,
+      sessions: [],
+      activeSessionId: null,
       selectedProvider: DEFAULT_MODEL.provider,
       selectedModel: DEFAULT_MODEL.id,
       apiKeys: {
@@ -71,6 +71,7 @@ export const useStudyGPTStore = create<StudyGPTState>()(
       },
       voiceSettings: DEFAULT_VOICE_SETTINGS,
       visualizationOpen: true,
+      hasHydrated: false,
       createSession: (seedPrompt) => {
         const session = createSessionRecord(seedPrompt);
         set((state) => ({
@@ -81,6 +82,9 @@ export const useStudyGPTStore = create<StudyGPTState>()(
       },
       setActiveSession: (id) => {
         set({ activeSessionId: id });
+      },
+      setHasHydrated: (value) => {
+        set({ hasHydrated: value });
       },
       updateSelectedModel: (model, provider) => {
         set({ selectedModel: model, selectedProvider: provider });
@@ -178,6 +182,9 @@ export const useStudyGPTStore = create<StudyGPTState>()(
     {
       name: STUDYGPT_STORAGE_KEY,
       version: 1,
+      onRehydrateStorage: () => (state) => {
+        state?.setHasHydrated(true);
+      },
       partialize: (state) => ({
         sessions: state.sessions,
         activeSessionId: state.activeSessionId,

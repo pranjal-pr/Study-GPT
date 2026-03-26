@@ -36,7 +36,6 @@ import {
 } from "@/components/ui/sheet";
 
 export function StudyGPTShell() {
-  const [hydrated, setHydrated] = useState(false);
   const [input, setInput] = useState("");
   const [agentRuntime, setAgentRuntime] = useState(DEFAULT_AGENT_RUNTIME_STATE);
   const [isLoading, setIsLoading] = useState(false);
@@ -50,6 +49,7 @@ export function StudyGPTShell() {
     appendMessage,
     createSession,
     deleteSession,
+    hasHydrated,
     sessions,
     selectedModel,
     selectedProvider,
@@ -64,10 +64,6 @@ export function StudyGPTShell() {
     voiceSettings,
   } = useStudyGPTStore();
 
-  useEffect(() => {
-    setHydrated(true);
-  }, []);
-
   const sortedSessions = useMemo(
     () =>
       [...sessions].sort(
@@ -81,7 +77,7 @@ export function StudyGPTShell() {
     sortedSessions.find((session) => session.id === activeSessionId) ?? sortedSessions[0] ?? null;
 
   useEffect(() => {
-    if (!hydrated) {
+    if (!hasHydrated) {
       return;
     }
 
@@ -94,7 +90,7 @@ export function StudyGPTShell() {
     if (!activeSession && sortedSessions[0]) {
       setActiveSession(sortedSessions[0].id);
     }
-  }, [activeSession, createSession, hydrated, setActiveSession, sortedSessions]);
+  }, [activeSession, createSession, hasHydrated, setActiveSession, sortedSessions]);
 
   const activeModel =
     MODEL_OPTIONS.find((model) => model.id === selectedModel) ?? DEFAULT_MODEL;
@@ -408,16 +404,6 @@ export function StudyGPTShell() {
       regenerateVisualization: true,
     });
   };
-
-  if (!hydrated) {
-    return (
-      <div className="grid min-h-screen place-items-center">
-        <div className="glass-panel rounded-[2rem] border border-border px-6 py-5 text-sm text-muted-foreground">
-          Loading StudyGPT...
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="relative min-h-screen overflow-hidden">
