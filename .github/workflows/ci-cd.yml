@@ -56,35 +56,24 @@ jobs:
           fetch-depth: 0
           lfs: true
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install Hugging Face Hub
-        run: python -m pip install --upgrade huggingface_hub
-
-      - name: Upload project to Hugging Face Space
+      - name: Configure Git
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
           HF_SPACE_REPO: ${{ vars.HF_SPACE_REPO || vars.HF_SPACE_ID }}
         run: |
-          python - <<'PY'
-          import os
-          from huggingface_hub import HfApi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git lfs install
 
-          api = HfApi(token=os.environ["HF_TOKEN"])
-          api.upload_folder(
-              repo_id=os.environ["HF_SPACE_REPO"],
-              repo_type="space",
-              folder_path=".",
-              commit_message=f"Sync from GitHub {os.environ['GITHUB_SHA'][:7]}",
-              ignore_patterns=[
-                  ".git/*",
-                  ".github/*",
-                  ".next/*",
-                  "node_modules/*",
-                  ".env*",
-              ],
-          )
-          PY
+      - name: Push exact repo state to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_SPACE_REPO: ${{ vars.HF_SPACE_REPO || vars.HF_SPACE_ID }}
+        run: |
+          HF_REMOTE="https://hf_user:${HF_TOKEN}@huggingface.co/spaces/${HF_SPACE_REPO}"
+
+          git remote remove hf-space 2>/dev/null || true
+          git remote add hf-space "${HF_REMOTE}"
+
+          # Force push so the Space exactly mirrors GitHub, including deletions.
+          git push hf-space HEAD:main --force
