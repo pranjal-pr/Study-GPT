@@ -86,9 +86,14 @@
   --radius-md: calc(var(--radius) - 0.25rem);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 0.5rem);
-  --font-sans: var(--font-manrope);
-  --font-heading: var(--font-sora);
-  --font-mono: var(--font-plex-mono);
+  --font-sans:
+    "Segoe UI", "Aptos", "Helvetica Neue", Helvetica, Arial, sans-serif;
+  --font-heading:
+    "Trebuchet MS", "Segoe UI Semibold", "Aptos Display", "Segoe UI",
+    sans-serif;
+  --font-mono:
+    "Cascadia Code", "SFMono-Regular", Consolas, "Liberation Mono", Menlo,
+    monospace;
 }
 
 * {
