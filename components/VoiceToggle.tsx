@@ -16,10 +16,12 @@ import { Switch } from "@/components/ui/switch";
 
 interface VoiceToggleProps {
   availableVoices: SpeechSynthesisVoice[];
+  isEmbeddedFrame: boolean;
   isListening: boolean;
   isSpeaking: boolean;
   isSupported: boolean;
   settings: VoiceSettings;
+  directAppHref?: string;
   onToggleEnabled: () => void;
   onToggleListening: () => void;
   onStopSpeaking: () => void;
@@ -28,10 +30,12 @@ interface VoiceToggleProps {
 
 export function VoiceToggle({
   availableVoices,
+  isEmbeddedFrame,
   isListening,
   isSpeaking,
   isSupported,
   settings,
+  directAppHref,
   onToggleEnabled,
   onToggleListening,
   onStopSpeaking,
@@ -93,7 +97,11 @@ export function VoiceToggle({
               <Switch
                 checked={settings.enabled}
                 disabled={!isSupported}
-                onCheckedChange={(checked) => onUpdateSettings({ enabled: checked })}
+                onCheckedChange={(checked) => {
+                  if (checked !== settings.enabled) {
+                    onToggleEnabled();
+                  }
+                }}
               />
             </div>
 
@@ -139,6 +147,27 @@ export function VoiceToggle({
                 {availableVoices.length > 3 ? "..." : ""}
               </p>
             </label>
+
+            {isEmbeddedFrame ? (
+              <div className="rounded-[1.4rem] border border-border bg-muted/55 px-4 py-3">
+                <p className="text-sm font-medium">Embedded preview detected</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Some browsers block microphone access inside embedded app previews.
+                  Open the direct app tab if voice input is denied here.
+                </p>
+                {directAppHref ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => window.open(directAppHref, "_blank", "noopener,noreferrer")}
+                  >
+                    Open direct app
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
 
             <label className="block space-y-2">
               <span className="text-sm font-medium">Speech rate: {settings.rate.toFixed(1)}</span>

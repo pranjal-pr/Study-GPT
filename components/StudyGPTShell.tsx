@@ -41,6 +41,7 @@ export function StudyGPTShell() {
   const [isLoading, setIsLoading] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [mobileVisualOpen, setMobileVisualOpen] = useState(false);
+  const [directAppHref, setDirectAppHref] = useState<string | undefined>(undefined);
   const [, startTransition] = useTransition();
 
   const {
@@ -109,6 +110,7 @@ export function StudyGPTShell() {
 
   const {
     availableVoices,
+    isEmbeddedFrame,
     isListening,
     isSpeaking,
     isSupported,
@@ -120,11 +122,22 @@ export function StudyGPTShell() {
     transcriptPreview,
   } = useVoiceTutor({
     settings: voiceSettings,
+    onError: (message) => {
+      toast.error(message);
+    },
     onTranscript: (value) => {
       setInput(value);
       void sendPrompt(value);
     },
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    setDirectAppHref(window.location.href);
+  }, []);
 
   useEffect(() => {
     if (!voiceSettings.enabled) {
@@ -142,7 +155,7 @@ export function StudyGPTShell() {
     const nextEnabled = !voiceSettings.enabled;
     updateVoiceSettings({ enabled: nextEnabled });
 
-    if (nextEnabled && voiceSettings.mode === "continuous") {
+    if (nextEnabled) {
       startListening();
     }
   };
@@ -447,6 +460,8 @@ export function StudyGPTShell() {
             <div className="flex items-center gap-2">
               <VoiceToggle
                 availableVoices={availableVoices}
+                directAppHref={directAppHref}
+                isEmbeddedFrame={isEmbeddedFrame}
                 isListening={isListening}
                 isSpeaking={isSpeaking}
                 isSupported={isSupported}

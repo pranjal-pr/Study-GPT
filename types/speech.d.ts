@@ -23,6 +23,20 @@ declare global {
     stop: () => void;
   }
 
+  interface SpeechRecognitionErrorEvent extends Event {
+    error:
+      | "aborted"
+      | "audio-capture"
+      | "bad-grammar"
+      | "language-not-supported"
+      | "network"
+      | "no-speech"
+      | "not-allowed"
+      | "phrases-not-supported"
+      | "service-not-allowed";
+    message?: string;
+  }
+
   interface SpeechRecognitionEvent extends Event {
     resultIndex: number;
     results: SpeechRecognitionResultList;

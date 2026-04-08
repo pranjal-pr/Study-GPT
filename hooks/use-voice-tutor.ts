@@ -7,6 +7,7 @@ import { sanitizeAssistantContent } from "@/lib/utils";
 interface UseVoiceTutorOptions {
   settings: VoiceSettings;
   onTranscript: (value: string) => void;
+  onError?: (message: string) => void;
 }
 
 interface StopListeningOptions {
@@ -17,6 +18,7 @@ interface StopListeningOptions {
 export function useVoiceTutor({
   settings,
   onTranscript,
+  onError,
 }: UseVoiceTutorOptions) {
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptRef = useRef("");
@@ -28,9 +30,23 @@ export function useVoiceTutor({
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcriptPreview, setTranscriptPreview] = useState("");
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
-  const isSupported =
+  const isRecognitionSupported =
     typeof window !== "undefined" &&
     !!(window.SpeechRecognition ?? window.webkitSpeechRecognition);
+  const isSpeechSynthesisSupported =
+    typeof window !== "undefined" &&
+    typeof window.speechSynthesis !== "undefined" &&
+    typeof SpeechSynthesisUtterance !== "undefined";
+  const isEmbeddedFrame =
+    typeof window !== "undefined" && window.self !== window.top;
+  const isSupported = isRecognitionSupported || isSpeechSynthesisSupported;
+
+  const emitError = useCallback(
+    (message: string) => {
+      onError?.(message);
+    },
+    [onError],
+  );
 
   useEffect(() => {
     settingsRef.current = settings;
@@ -77,8 +93,22 @@ export function useVoiceTutor({
   );
 
   const startListening = useCallback(() => {
+    if (!isRecognitionSupported) {
+      emitError(
+        isEmbeddedFrame
+          ? "Voice input is not available in this embedded preview. Open the app directly in a new tab and allow microphone access."
+          : "This browser does not support speech recognition.",
+      );
+      return false;
+    }
+
     if (!recognitionRef.current || speakingRef.current) {
-      return;
+      return false;
+    }
+
+    if (typeof window !== "undefined" && !window.isSecureContext) {
+      emitError("Voice input requires a secure HTTPS context.");
+      return false;
     }
 
     transcriptRef.current = "";
@@ -89,10 +119,16 @@ export function useVoiceTutor({
       recognitionRef.current.continuous = settingsRef.current.mode === "continuous";
       recognitionRef.current.interimResults = true;
       recognitionRef.current.start();
+      return true;
     } catch {
-      // Ignore duplicate browser start errors.
+      emitError(
+        isEmbeddedFrame
+          ? "Microphone access was blocked in the embedded app. Open the direct app tab and allow microphone access."
+          : "StudyGPT could not start microphone capture. Check browser microphone permission and try again.",
+      );
+      return false;
     }
-  }, []);
+  }, [emitError, isEmbeddedFrame, isRecognitionSupported]);
 
   const toggleListening = useCallback(() => {
     if (listeningRef.current) {
@@ -103,6 +139,10 @@ export function useVoiceTutor({
   }, [startListening, stopListening]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
     const RecognitionConstructor =
       window.SpeechRecognition ?? window.webkitSpeechRecognition;
 
@@ -144,8 +184,27 @@ export function useVoiceTutor({
       }
     };
 
-    recognition.onerror = () => {
+    recognition.onerror = (event) => {
       setIsListening(false);
+
+      const recognitionEvent = event as SpeechRecognitionErrorEvent;
+      const errorCode = recognitionEvent.error;
+      const message =
+        errorCode === "not-allowed" || errorCode === "service-not-allowed"
+          ? isEmbeddedFrame
+            ? "Microphone permission was blocked in the embedded app. Open the direct app tab and allow microphone access."
+            : "Microphone permission was denied. Allow microphone access in your browser and try again."
+          : errorCode === "audio-capture"
+            ? "No working microphone was detected."
+            : errorCode === "language-not-supported"
+              ? "This browser does not support the selected speech recognition language."
+              : errorCode === "network"
+                ? "Speech recognition hit a network error. Try again."
+                : errorCode === "no-speech"
+                  ? "No speech was detected. Try speaking again."
+                  : recognitionEvent.message || "Speech recognition failed.";
+
+      emitError(message);
     };
 
     recognition.onend = () => {
@@ -187,20 +246,33 @@ export function useVoiceTutor({
       }
       recognitionRef.current = null;
     };
-  }, [commitTranscript, settings.mode, startListening, stopListening]);
+  }, [
+    commitTranscript,
+    emitError,
+    isEmbeddedFrame,
+    settings.mode,
+    startListening,
+    stopListening,
+  ]);
 
   useEffect(() => {
+    if (typeof window === "undefined" || !isSpeechSynthesisSupported) {
+      return;
+    }
+
+    const speechSynthesisApi = window.speechSynthesis;
+
     const loadVoices = () => {
-      setVoices(window.speechSynthesis.getVoices());
+      setVoices(speechSynthesisApi.getVoices());
     };
 
     loadVoices();
-    window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+    speechSynthesisApi.addEventListener("voiceschanged", loadVoices);
 
     return () => {
-      window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+      speechSynthesisApi.removeEventListener("voiceschanged", loadVoices);
     };
-  }, []);
+  }, [isSpeechSynthesisSupported]);
 
   useEffect(() => {
     if (!settings.enabled || settings.mode !== "continuous") {
@@ -227,7 +299,11 @@ export function useVoiceTutor({
   );
 
   const speak = useCallback(async (value: string) => {
-    if (!settingsRef.current.enabled || !settingsRef.current.autoSpeak) {
+    if (
+      !settingsRef.current.enabled ||
+      !settingsRef.current.autoSpeak ||
+      !isSpeechSynthesisSupported
+    ) {
       return;
     }
 
@@ -270,15 +346,20 @@ export function useVoiceTutor({
 
       window.speechSynthesis.speak(utterance);
     });
-  }, [startListening, stopListening, voices]);
+  }, [isSpeechSynthesisSupported, startListening, stopListening, voices]);
 
   const stopSpeaking = useCallback(() => {
+    if (!isSpeechSynthesisSupported) {
+      return;
+    }
+
     window.speechSynthesis.cancel();
     setIsSpeaking(false);
-  }, []);
+  }, [isSpeechSynthesisSupported]);
 
   return {
     availableVoices,
+    isEmbeddedFrame,
     isListening,
     isSpeaking,
     isSupported,
