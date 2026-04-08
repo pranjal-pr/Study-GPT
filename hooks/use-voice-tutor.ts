@@ -8,6 +8,7 @@ interface UseVoiceTutorOptions {
   settings: VoiceSettings;
   onTranscript: (value: string) => void;
   onError?: (message: string) => void;
+  transcribeAudio?: (blob: Blob) => Promise<string>;
 }
 
 interface StopListeningOptions {
@@ -19,7 +20,11 @@ export function useVoiceTutor({
   settings,
   onTranscript,
   onError,
+  transcribeAudio,
 }: UseVoiceTutorOptions) {
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
   const transcriptRef = useRef("");
   const autoRestartRef = useRef(false);
@@ -33,13 +38,19 @@ export function useVoiceTutor({
   const isRecognitionSupported =
     typeof window !== "undefined" &&
     !!(window.SpeechRecognition ?? window.webkitSpeechRecognition);
+  const isMediaRecordingSupported =
+    typeof window !== "undefined" &&
+    typeof MediaRecorder !== "undefined" &&
+    typeof navigator !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia;
   const isSpeechSynthesisSupported =
     typeof window !== "undefined" &&
     typeof window.speechSynthesis !== "undefined" &&
     typeof SpeechSynthesisUtterance !== "undefined";
   const isEmbeddedFrame =
     typeof window !== "undefined" && window.self !== window.top;
-  const isSupported = isRecognitionSupported || isSpeechSynthesisSupported;
+  const isSupported =
+    isRecognitionSupported || isMediaRecordingSupported || isSpeechSynthesisSupported;
 
   const emitError = useCallback(
     (message: string) => {
@@ -70,9 +81,23 @@ export function useVoiceTutor({
     }
   }, [onTranscript]);
 
+  const stopMediaTracks = useCallback(() => {
+    mediaStreamRef.current?.getTracks().forEach((track) => track.stop());
+    mediaStreamRef.current = null;
+  }, []);
+
   const stopListening = useCallback(
     ({ auto = false, preserveTranscript = false }: StopListeningOptions = {}) => {
       autoRestartRef.current = auto;
+
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        mediaRecorderRef.current.stop();
+        if (!preserveTranscript) {
+          transcriptRef.current = "";
+        }
+        return;
+      }
+
       if (!preserveTranscript) {
         transcriptRef.current = "";
         setTranscriptPreview("");
@@ -92,14 +117,125 @@ export function useVoiceTutor({
     [],
   );
 
-  const startListening = useCallback(() => {
-    if (!isRecognitionSupported) {
+  const startAudioRecording = useCallback(async () => {
+    if (!isMediaRecordingSupported || !transcribeAudio) {
+      emitError("Voice recording is not supported in this browser.");
+      return false;
+    }
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+      });
+      mediaStreamRef.current = stream;
+
+      const mimeType =
+        [
+          "audio/webm;codecs=opus",
+          "audio/webm",
+          "audio/mp4",
+          "audio/ogg;codecs=opus",
+        ].find((candidate) => MediaRecorder.isTypeSupported(candidate)) ?? "";
+
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      audioChunksRef.current = [];
+      recorder.onstart = () => {
+        setIsListening(true);
+        setTranscriptPreview(
+          settingsRef.current.mode === "continuous" ? "Listening..." : "Recording...",
+        );
+      };
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onerror = () => {
+        setIsListening(false);
+        setTranscriptPreview("");
+        stopMediaTracks();
+        emitError("Audio recording failed. Please try again.");
+      };
+      recorder.onstop = async () => {
+        setIsListening(false);
+
+        const chunks = [...audioChunksRef.current];
+        audioChunksRef.current = [];
+        mediaRecorderRef.current = null;
+        stopMediaTracks();
+
+        if (chunks.length === 0) {
+          setTranscriptPreview("");
+          return;
+        }
+
+        setTranscriptPreview("Transcribing...");
+
+        try {
+          const blob = new Blob(chunks, {
+            type: recorder.mimeType || "audio/webm",
+          });
+          const transcript = (await transcribeAudio(blob)).trim();
+
+          setTranscriptPreview("");
+          if (!transcript) {
+            emitError("StudyGPT could not transcribe the recording.");
+            return;
+          }
+
+          onTranscript(transcript);
+        } catch (error) {
+          setTranscriptPreview("");
+          emitError(
+            error instanceof Error
+              ? error.message
+              : "StudyGPT could not transcribe the recording.",
+          );
+        }
+      };
+
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      return true;
+    } catch (error) {
+      stopMediaTracks();
       emitError(
-        isEmbeddedFrame
-          ? "Voice input is not available in this embedded preview. Open the app directly in a new tab and allow microphone access."
-          : "This browser does not support speech recognition.",
+        error instanceof DOMException &&
+        (error.name === "NotAllowedError" || error.name === "SecurityError")
+          ? isEmbeddedFrame
+            ? "Microphone permission was blocked in the embedded app. Open the direct app tab and allow microphone access."
+            : "Microphone permission was denied. Allow microphone access in your browser and try again."
+          : error instanceof DOMException && error.name === "NotFoundError"
+            ? "No microphone was found on this device."
+            : "StudyGPT could not access the microphone.",
       );
       return false;
+    }
+  }, [
+    emitError,
+    isEmbeddedFrame,
+    isMediaRecordingSupported,
+    onTranscript,
+    stopMediaTracks,
+    transcribeAudio,
+  ]);
+
+  const startListening = useCallback(() => {
+    if (!isRecognitionSupported) {
+      if (
+        settingsRef.current.mode === "continuous" &&
+        isMediaRecordingSupported &&
+        transcribeAudio
+      ) {
+        emitError(
+          "Continuous browser speech recognition is unavailable here. Falling back to push-to-talk recording.",
+        );
+      }
+
+      return startAudioRecording();
     }
 
     if (!recognitionRef.current || speakingRef.current) {
@@ -128,7 +264,14 @@ export function useVoiceTutor({
       );
       return false;
     }
-  }, [emitError, isEmbeddedFrame, isRecognitionSupported]);
+  }, [
+    emitError,
+    isEmbeddedFrame,
+    isMediaRecordingSupported,
+    isRecognitionSupported,
+    startAudioRecording,
+    transcribeAudio,
+  ]);
 
   const toggleListening = useCallback(() => {
     if (listeningRef.current) {

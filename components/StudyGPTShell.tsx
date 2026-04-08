@@ -129,6 +129,35 @@ export function StudyGPTShell() {
       setInput(value);
       void sendPrompt(value);
     },
+    transcribeAudio: async (blob) => {
+      const extension =
+        blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
+      const formData = new FormData();
+      formData.append(
+        "file",
+        new File([blob], `voice-input.${extension}`, {
+          type: blob.type || "audio/webm",
+        }),
+      );
+      formData.append("apiKeys", JSON.stringify(apiKeys));
+      formData.append("language", "en");
+
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        body: formData,
+      });
+
+      const payload = (await response.json().catch(() => ({}))) as {
+        message?: string;
+        text?: string;
+      };
+
+      if (!response.ok) {
+        throw new Error(payload.message || "StudyGPT could not transcribe the recording.");
+      }
+
+      return payload.text?.trim() ?? "";
+    },
   });
 
   useEffect(() => {
