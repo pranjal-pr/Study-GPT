@@ -22,10 +22,18 @@ export function useVoiceTutor({
   onError,
   transcribeAudio,
 }: UseVoiceTutorOptions) {
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const discardRecordingRef = useRef(false);
+  const fallbackNoticeShownRef = useRef(false);
+  const frameRef = useRef<number | null>(null);
+  const lastSpeechAtRef = useRef(0);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const recordingStartedAtRef = useRef(0);
+  const speechDetectedRef = useRef(false);
   const transcriptRef = useRef("");
   const autoRestartRef = useRef(false);
   const settingsRef = useRef(settings);
@@ -86,14 +94,107 @@ export function useVoiceTutor({
     mediaStreamRef.current = null;
   }, []);
 
+  const stopVolumeMonitoring = useCallback(() => {
+    if (frameRef.current !== null) {
+      window.cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+
+    analyserRef.current = null;
+
+    if (audioContextRef.current) {
+      void audioContextRef.current.close().catch(() => {
+        // Ignore close errors during teardown.
+      });
+      audioContextRef.current = null;
+    }
+  }, []);
+
+  const startVolumeMonitoring = useCallback(
+    (stream: MediaStream, recorder: MediaRecorder) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      const AudioContextCtor =
+        window.AudioContext ||
+        (window as Window & typeof globalThis & { webkitAudioContext?: typeof AudioContext })
+          .webkitAudioContext;
+      if (!AudioContextCtor) {
+        return;
+      }
+
+      const context = new AudioContextCtor();
+      const source = context.createMediaStreamSource(stream);
+      const analyser = context.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+
+      audioContextRef.current = context;
+      analyserRef.current = analyser;
+
+      const buffer = new Uint8Array(analyser.frequencyBinCount);
+      const silenceThreshold = 0.02;
+      const initialSilenceMs = 3500;
+      const silenceAfterSpeechMs = 1200;
+      const minRecordingMs = 700;
+      const maxRecordingMs = settingsRef.current.mode === "continuous" ? 15000 : 20000;
+
+      const tick = () => {
+        if (mediaRecorderRef.current !== recorder || recorder.state === "inactive") {
+          stopVolumeMonitoring();
+          return;
+        }
+
+        analyser.getByteTimeDomainData(buffer);
+
+        let sum = 0;
+        for (const value of buffer) {
+          const normalized = (value - 128) / 128;
+          sum += normalized * normalized;
+        }
+
+        const rms = Math.sqrt(sum / buffer.length);
+        const now = performance.now();
+        const elapsed = now - recordingStartedAtRef.current;
+
+        if (rms > silenceThreshold) {
+          speechDetectedRef.current = true;
+          lastSpeechAtRef.current = now;
+          setTranscriptPreview("Listening...");
+        }
+
+        const shouldStopForSilence =
+          speechDetectedRef.current &&
+          elapsed >= minRecordingMs &&
+          now - lastSpeechAtRef.current >= silenceAfterSpeechMs;
+        const shouldStopForNoSpeech =
+          !speechDetectedRef.current && elapsed >= initialSilenceMs;
+        const shouldStopForMaxLength = elapsed >= maxRecordingMs;
+
+        if (shouldStopForSilence || shouldStopForNoSpeech || shouldStopForMaxLength) {
+          recorder.stop();
+          return;
+        }
+
+        frameRef.current = window.requestAnimationFrame(tick);
+      };
+
+      frameRef.current = window.requestAnimationFrame(tick);
+    },
+    [stopVolumeMonitoring],
+  );
+
   const stopListening = useCallback(
     ({ auto = false, preserveTranscript = false }: StopListeningOptions = {}) => {
       autoRestartRef.current = auto;
 
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+        discardRecordingRef.current = !preserveTranscript;
         mediaRecorderRef.current.stop();
         if (!preserveTranscript) {
           transcriptRef.current = "";
+          setTranscriptPreview("");
         }
         return;
       }
@@ -142,6 +243,11 @@ export function useVoiceTutor({
         : new MediaRecorder(stream);
 
       audioChunksRef.current = [];
+      discardRecordingRef.current = false;
+      fallbackNoticeShownRef.current = true;
+      lastSpeechAtRef.current = 0;
+      recordingStartedAtRef.current = performance.now();
+      speechDetectedRef.current = false;
       recorder.onstart = () => {
         setIsListening(true);
         setTranscriptPreview(
@@ -156,16 +262,24 @@ export function useVoiceTutor({
       recorder.onerror = () => {
         setIsListening(false);
         setTranscriptPreview("");
+        stopVolumeMonitoring();
         stopMediaTracks();
         emitError("Audio recording failed. Please try again.");
       };
       recorder.onstop = async () => {
         setIsListening(false);
+        stopVolumeMonitoring();
 
         const chunks = [...audioChunksRef.current];
         audioChunksRef.current = [];
         mediaRecorderRef.current = null;
         stopMediaTracks();
+
+        if (discardRecordingRef.current) {
+          discardRecordingRef.current = false;
+          setTranscriptPreview("");
+          return;
+        }
 
         if (chunks.length === 0) {
           setTranscriptPreview("");
@@ -199,8 +313,10 @@ export function useVoiceTutor({
 
       mediaRecorderRef.current = recorder;
       recorder.start();
+      startVolumeMonitoring(stream, recorder);
       return true;
     } catch (error) {
+      stopVolumeMonitoring();
       stopMediaTracks();
       emitError(
         error instanceof DOMException &&
@@ -219,6 +335,8 @@ export function useVoiceTutor({
     isEmbeddedFrame,
     isMediaRecordingSupported,
     onTranscript,
+    startVolumeMonitoring,
+    stopVolumeMonitoring,
     stopMediaTracks,
     transcribeAudio,
   ]);
@@ -228,10 +346,11 @@ export function useVoiceTutor({
       if (
         settingsRef.current.mode === "continuous" &&
         isMediaRecordingSupported &&
-        transcribeAudio
+        transcribeAudio &&
+        !fallbackNoticeShownRef.current
       ) {
         emitError(
-          "Continuous browser speech recognition is unavailable here. Falling back to push-to-talk recording.",
+          "Browser speech recognition is unavailable here. StudyGPT will record your speech and transcribe it automatically instead.",
         );
       }
 
@@ -387,6 +506,8 @@ export function useVoiceTutor({
       } catch {
         // Ignore teardown errors.
       }
+      stopVolumeMonitoring();
+      stopMediaTracks();
       recognitionRef.current = null;
     };
   }, [
@@ -395,6 +516,8 @@ export function useVoiceTutor({
     isEmbeddedFrame,
     settings.mode,
     startListening,
+    stopMediaTracks,
+    stopVolumeMonitoring,
     stopListening,
   ]);
 
